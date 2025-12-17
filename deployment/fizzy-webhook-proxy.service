@@ -1,0 +1,25 @@
+[Unit]
+Description=Fizzy Webhook Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=root
+# Adjust User/Group if you want to run as a specific user
+# User=fizzy
+# Group=fizzy
+
+# Environment Configuration
+EnvironmentFile=/etc/default/fizzy-webhook-proxy
+
+# Binary Path
+ExecStart=/usr/local/bin/fizzy-webhook-proxy
+
+Restart=always
+RestartSec=3
+
+# Environment variables can also be loaded here or from file
+# EnvironmentFile=/opt/fizzy-proxy/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+# Environments
+.env
+.env.local
+!.env.example
+
+# Build artifacts
+bin/
+dist/
+*.exe
+*.out
+*.test
+
+# Go module/vendor
+vendor/
+go.sum
