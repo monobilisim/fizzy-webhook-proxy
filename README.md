@@ -74,8 +74,16 @@ Fizzy Webhook altyapısındaki bazı veri eksiklikleri nedeniyle:
 
 ## Kullanım
 
-Fizzy proje ayarlarından **Webhooks** ekleyin ve **Generic JSON** formatını seçin:
+Fizzy proje ayarlarından **Webhooks** ekleyin. Aşağıdaki olayları (Events) seçmenizi öneririz:
 
-- Zulip: `https://proxy.adresiniz.com/zulip`
-- Google Chat: `https://proxy.adresiniz.com/google-chat`
-- Gotify: `https://proxy.adresiniz.com/gotify`
+- `card_created`, `card_published`
+- `comment_created`
+- `card_moved`, `card_board_changed`
+- `card_assigned`, `card_unassigned`
+- `card_closed`, `card_reopened`, `card_archived`
+- `card_postponed`, `card_sent_back_to_triage`
+
+URL kısmına proxy adresini yaz:
+- Zulip için: `https://proxy.adresiniz.com/zulip`
+- Google Chat için: `https://proxy.adresiniz.com/google-chat`
+- Gotify için: `https://proxy.adresiniz.com/gotify`
