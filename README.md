@@ -40,7 +40,7 @@ sudo vim /etc/default/fizzy-webhook-proxy
 PORT=8080
 
 # Webhook Adresleri (Kullanılmayanları boş bırakabilirsiniz)
-ZULIP_WEBHOOK_URL=https://chat.example.com/api/v1/external/slack...
+ZULIP_WEBHOOK_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=your_api_key&stream=your_stream&topic=your_topic
 GOOGLE_CHAT_WEBHOOK_URL=https://chat.googleapis.com/v1/spaces/...
 GOTIFY_WEBHOOK_URL=https://gotify.example.com/message?token=...
 
@@ -93,4 +93,3 @@ URL kısmına proxy adresini yaz:
 - [ ] Telegram desteği ekle
 - [ ] Slack desteği ekle
 - [ ] Birim testlerini (Unit Tests) genişlet
-
