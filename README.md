@@ -87,3 +87,10 @@ URL kısmına proxy adresini yaz:
 - Zulip için: `https://proxy.adresiniz.com/zulip`
 - Google Chat için: `https://proxy.adresiniz.com/google-chat`
 - Gotify için: `https://proxy.adresiniz.com/gotify`
+
+## Yapılacaklar (To-Do)
+
+- [ ] Telegram desteği ekle
+- [ ] Slack desteği ekle
+- [ ] Birim testlerini (Unit Tests) genişlet
+
