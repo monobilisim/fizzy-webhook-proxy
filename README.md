@@ -6,61 +6,76 @@ Standart Fizzy bildirimleri karmaşık veya eksik olabiliyor. Bu servis araya gi
 
 ## Özellikler
 
-- **Google Chat & Zulip:** Zengin kart görünümü (Başlık, Kişi, Detaylar ve Buton).
-- **Akıllı Linkler:** Fizzy'nin bazen bozuk verdiği yorum linklerini düzeltir, tıklayınca direkt ilgili yoruma götürür.
-- **Kolay Kurulum:** Tek komutla derlenip servise dönüşür.
+- **Zengin Bildirimler:** Google Chat ve Zulip için kart görünümleri, Gotify için düzenli Markdown formatı.
+- **Akıllı Linkler:** Yorum linklerini düzeltir, ilgili karta ve yorum ID'sine yönlendirir.
+- **Deduplication:** Aynı olayın yanlışlıkla birden fazla kez bildirilmesini engeller.
+- **Kolay Kurulum:** Tek bir binary dosya olarak çalışır.
 
-## Kurulum
+## Kurulum (Binary ile)
 
-Sunucuda Go yüklü olması yeterli. Projeyi çektikten sonra:
+En son sürümü [GitHub Releases](https://github.com/monobilisim/fizzy-webhook-proxy/releases) sayfasından indirebilirsiniz.
 
+```bash
+# Binary'yi indir ve çalıştırılabilir yap
+wget https://github.com/monobilisim/fizzy-webhook-proxy/releases/latest/download/fizzy-webhook-proxy
+chmod +x fizzy-webhook-proxy
+sudo mv fizzy-webhook-proxy /usr/local/bin/
+```
+
+Alternatif olarak kaynak kodu derlemek isterseniz:
 ```bash
 sudo make install
 ```
 
-Bu komut kodları derler ve `/usr/local/bin/fizzy-webhook-proxy` olarak sisteme kurar.
-
 ## Ayarlar
 
-Servisin çalışması için `/etc/default/fizzy-webhook-proxy` dosyasını oluşturup gerekli webhook adreslerinin girilmesi gerek.
+Servisin çalışması için `/etc/default/fizzy-webhook-proxy` dosyasında (veya `.env` dosyasında) ayarların yapılması gerekir:
 
 ```bash
 sudo vim /etc/default/fizzy-webhook-proxy
 ```
 
-Örnek içerik:
 ```env
 # Servis Portu
 PORT=8080
 
-# Kullanacağın servislerin webhook adresleri (Kullanılmayacak olan yazılmayabilir.)
+# Webhook Adresleri (Kullanılmayanları boş bırakabilirsiniz)
 ZULIP_WEBHOOK_URL=https://chat.example.com/api/v1/external/slack...
 GOOGLE_CHAT_WEBHOOK_URL=https://chat.googleapis.com/v1/spaces/...
 GOTIFY_WEBHOOK_URL=https://gotify.example.com/message?token=...
 
-# Fizzy Link Düzeltme (Domain adresini yazman yeterli)
+# Fizzy Link Düzeltme
 FIZZY_ROOT_URL=https://fizzy.example.com
 ```
 
 ## Servisi Başlatma
 
-Ayarları yaptıktan sonra systemd servisini aktif et:
-
 ```bash
-# Servis dosyasını kopyala
 sudo cp deployment/fizzy-webhook-proxy.service /etc/systemd/system/
-
-# Systemd'ye tanıt ve başlat
 sudo systemctl daemon-reload
 sudo systemctl enable --now fizzy-webhook-proxy
 ```
 
+## Bilinen Limitasyonlar
+
+Fizzy Webhook altyapısındaki bazı veri eksiklikleri nedeniyle:
+
+1.  **Yorum Bildirimlerinde Kart Başlığı:**
+    - Fizzy, `comment_created` olayında kartın metin başlığını (örn. "Login Sayfası Hatası") göndermez.
+    - **Çözüm:** Proxy, URL'den kart numarasını ayıklar ve başlık eksikse `[Kişi] yorum yaptı` şeklinde sade bir başlık gösterir. Metin başlığına API entegrasyonu olmadan erişilemez.
+
+2.  **Atama Bildirimlerinde Kişi İsmi:**
+    - `card_assigned` olayında kartın *kime* atandığı bilgisi payload içinde gelmez.
+    - **Çözüm:** Bildirim "kartı birine atadı" şeklinde genel bir ifadeyle gösterilir.
+
+3.  **Çifte Bildirimler:**
+    - Fizzy bazen aynı olayı (özellikle `card_reopened`) milisaniyeler içinde iki kez gönderebilir.
+    - **Çözüm:** Proxy içinde 2 saniyelik bir `deduplication` mekanizması vardır; aynı olay tekrarlanırsa ikincisi yoksayılır.
+
 ## Kullanım
 
-Fizzy'de proje ayarlarına git, **Webhooks** kısmından yeni webhook ekle.
-**Payload Format** olarak mutlaka **Generic JSON** seçmelisin.
+Fizzy proje ayarlarından **Webhooks** ekleyin ve **Generic JSON** formatını seçin:
 
-URL kısmına proxy adresini yaz:
-- Zulip için: `https://fizzy-webhook-proxy.example.com/zulip`
-- Google Chat için: `https://fizzy-webhook-proxy.example.com/google-chat`
-- Gotify için: `https://fizzy-webhook-proxy.example.com/gotify`
+- Zulip: `https://proxy.adresiniz.com/zulip`
+- Google Chat: `https://proxy.adresiniz.com/google-chat`
+- Gotify: `https://proxy.adresiniz.com/gotify`
