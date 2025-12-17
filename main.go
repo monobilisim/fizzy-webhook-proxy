@@ -73,7 +73,7 @@ type FizzyEventable struct {
 		PlainText string `json:"plain_text"`
 	} `json:"body"` // For comments
 	URL          string    `json:"url"`
-	ReactionsURL string    `json:"reactions_url"` // New field
+	ReactionsURL string    `json:"reactions_url"`
 	Creator      FizzyUser `json:"creator"`
 }
 
@@ -153,7 +153,6 @@ type OpenLink struct {
 }
 
 func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
-	// Re-use logic but refined for Professional Look
 	actor := f.Creator.Name
 	if actor == "" {
 		actor = "Biri"
@@ -162,7 +161,6 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 
 	finalURL := resolveFizzyURL(f)
 
-	// Professional Header Strategy:
 	// Title: The Subject (Card Title, Board Name, or generic "Fizzy")
 	// Subtitle: The Event (Actor + Verb)
 
@@ -196,12 +194,6 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 		})
 	}
 
-	// If it's a Card event (no body), and we moved Title to Header, we might want to show Board Name in widget if available?
-	// Or simply keep it clean.
-	// If Title came from Board Name (comment case), showing it again matches context?
-	// Let's add Board Name as a widget info if available and not used as main title?
-	// Or simpler: Just Board Name widget always for context?
-	// "Professional" often implies context.
 	if f.Board.Name != "" && subjectTitle != f.Board.Name {
 		widgets = append(widgets, Widget{
 			DecoratedText: &DecoratedText{
@@ -406,8 +398,6 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
 
 	// Create new request to destination
 	// Note: We ignore original query params for simplicity unless needed.
-	// Some webhooks (like Zulip) might need keys in URL.
-	// The original code appended original query params. Let's keep that behavior.
 	destURL := appendQuery(t.URL, r.URL.RawQuery)
 	// Log the payload we are sending for debug
 	log.Printf("Forwarding to %s (%s): %s", t.Name, t.Type, string(newBody))
@@ -418,9 +408,6 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
 		return
 	}
 
-	// Copy headers?
-	// We should probably set Content-Type to application/json for our new payload.
-	// And maybe drop signature headers if they aren't valid for the new body (which they won't be).
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Fizzy-Proxy/1.0")
 
@@ -469,8 +456,6 @@ func translateToGotify(f FizzyPayload) ([]byte, error) {
 	if actor == "" {
 		actor = "Biri"
 	}
-	// User requested "Fizzy: Verb" style but "Zulip-like" (Actor Verb).
-	// Combining: "Fizzy: [Actor] [Verb]"
 	title := fmt.Sprintf("Fizzy: %s %s", actor, verb)
 	payload := GotifyPayload{
 		Message:  msg,
@@ -526,8 +511,6 @@ func buildMessage(f FizzyPayload) string {
 	// Determine URL
 	urlStr := resolveFizzyURL(f)
 
-	// Final fallback: Try to extract Card ID from URL if we still only have Board Name or Generic
-	// This helps for comments where payload doesn't have card title but URL does have ID.
 	if subject == f.Board.Name || subject == "Fizzy Bildirimi" {
 		// inspect raw URLs not the resolved one which might be a search URL
 		rawURL := f.Eventable.URL
@@ -560,16 +543,8 @@ func buildMessage(f FizzyPayload) string {
 		}
 	}
 
-	// Assemble Message
-	// ### 📢 **Actor** Verb: Subject
-	// OR if fallback subject:
-	// ### 📢 **Actor** Verb
-
 	var sb strings.Builder
 
-	// Conditionally show subject
-	// User requested "Comment commented" -> "Yorumu yorum yaptı" simply.
-	// If it's a comment AND the subject was derived as a fallback (starts with "Kart #"), hide it.
 	hideSubject := false
 	if f.Action == "comment_created" && strings.HasPrefix(subject, "Kart #") {
 		hideSubject = true
