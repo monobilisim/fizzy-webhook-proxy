@@ -256,6 +256,7 @@ type DedupeKey struct {
 var (
 	dedupeCache = make(map[DedupeKey]time.Time)
 	dedupeMu    sync.Mutex
+	debugMode   bool
 )
 
 func isDuplicate(targetName, action, eventableID string) bool {
@@ -289,6 +290,7 @@ func main() {
 	loadDotEnv(".env")
 
 	port := envOrDefault("PORT", "8080")
+	debugMode = os.Getenv("DEBUG") == "true"
 	targets := loadTargets()
 	if len(targets) == 0 {
 		log.Println("no webhook targets configured; set *_WEBHOOK_URL in .env")
@@ -304,7 +306,9 @@ func main() {
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[DEBUG] Received request on root handler: %s %s", r.Method, r.URL.Path)
+		if debugMode {
+			log.Printf("[DEBUG] Received request on root handler: %s %s", r.Method, r.URL.Path)
+		}
 		w.WriteHeader(http.StatusOK)
 		if len(targets) == 0 {
 			fmt.Fprintln(w, "Fizzy webhook proxy: no targets configured")
@@ -439,7 +443,9 @@ func loadTargets() []target {
 }
 
 func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
-	log.Printf("[DEBUG] Received request on forward handler (%s): %s %s", t.Name, r.Method, r.URL.Path)
+	if debugMode {
+		log.Printf("[DEBUG] Received request on forward handler (%s): %s %s", t.Name, r.Method, r.URL.Path)
+	}
 	if t.URL == "" {
 		http.Error(w, "target URL not configured", http.StatusServiceUnavailable)
 		return
