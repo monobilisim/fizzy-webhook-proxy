@@ -35,6 +35,10 @@ The service requires configuration in the `/etc/default/fizzy-webhook-proxy` fil
 sudo vim /etc/default/fizzy-webhook-proxy
 ```
 
+### Single-Tenant Configuration (Simple Setup)
+
+For a single board or project, use the basic configuration:
+
 ```env
 # Service Port
 PORT=8080
@@ -47,6 +51,50 @@ GOTIFY_WEBHOOK_URL=https://gotify.example.com/message?token=...
 # Fizzy Link Fixing
 FIZZY_ROOT_URL=https://fizzy.example.com
 ```
+
+**Webhook paths:**
+- Zulip: `https://your-proxy-address.com/zulip`
+- Google Chat: `https://your-proxy-address.com/google-chat`
+- Gotify: `https://your-proxy-address.com/gotify`
+
+### Multi-Tenant Configuration (Multiple Boards)
+
+For multiple boards with separate webhook destinations, use the board-specific configuration:
+
+```env
+# Service Port
+PORT=8080
+
+# Pattern: BOARD_{IDENTIFIER}_{TYPE}_URL
+# Creates paths: /{type}/board-{identifier}
+
+# Engineering Team Board
+BOARD_ENG_ZULIP_URL=https://zulip.company.com/api/v1/external/slack_incoming?stream=engineering&api_key=key1
+BOARD_ENG_GOOGLE_CHAT_URL=https://chat.googleapis.com/v1/spaces/eng-space/messages?key=key2
+
+# Product Team Board
+BOARD_PRODUCT_ZULIP_URL=https://zulip.company.com/api/v1/external/slack_incoming?stream=product&api_key=key3
+
+# Support Team Board (Multiple webhook types)
+BOARD_SUPPORT_ZULIP_URL=https://zulip.company.com/api/v1/external/slack_incoming?stream=support&api_key=key4
+BOARD_SUPPORT_GOTIFY_URL=https://gotify.company.com/message?token=support_token
+
+# Fizzy Link Fixing
+FIZZY_ROOT_URL=https://fizzy.example.com
+```
+
+**Webhook paths for multi-tenant setup:**
+- Engineering Board → Zulip: `https://your-proxy-address.com/zulip/board-eng`
+- Engineering Board → Google Chat: `https://your-proxy-address.com/google-chat/board-eng`
+- Product Board → Zulip: `https://your-proxy-address.com/zulip/board-product`
+- Support Board → Zulip: `https://your-proxy-address.com/zulip/board-support`
+- Support Board → Gotify: `https://your-proxy-address.com/gotify/board-support`
+
+**Notes:**
+- Board identifiers can contain underscores (e.g., `MY_PROJECT`)
+- Underscores in board IDs are converted to hyphens in URLs (e.g., `BOARD_MY_PROJECT_ZULIP_URL` → `/zulip/board-my-project`)
+- Each board can have multiple webhook types (Zulip, Google Chat, Gotify)
+- You can mix single-tenant and multi-tenant configurations
 
 ## Starting the Service
 
@@ -83,10 +131,25 @@ Add **Webhooks** from Fizzy project settings. We recommend selecting the followi
 - `card_closed`, `card_reopened`, `card_archived`
 - `card_postponed`, `card_sent_back_to_triage`
 
+### Single-Tenant Setup
+
 Enter the proxy address in the URL field:
 - For Zulip: `https://your-proxy-address.com/zulip`
 - For Google Chat: `https://your-proxy-address.com/google-chat`
 - For Gotify: `https://your-proxy-address.com/gotify`
+
+### Multi-Tenant Setup
+
+For each board, enter the board-specific webhook URLs:
+
+**Example: Engineering Board**
+- For Zulip: `https://your-proxy-address.com/zulip/board-eng`
+- For Google Chat: `https://your-proxy-address.com/google-chat/board-eng`
+
+**Example: Product Board**
+- For Zulip: `https://your-proxy-address.com/zulip/board-product`
+
+The board identifier in the URL (`board-eng`, `board-product`) must match the identifier in your environment variables (`BOARD_ENG_*`, `BOARD_PRODUCT_*`).
 
 ## To-Do
 

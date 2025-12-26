@@ -26,10 +26,11 @@ const (
 )
 
 type target struct {
-	Name string
-	Path string
-	URL  string
-	Type TargetType
+	Name    string
+	Path    string
+	URL     string
+	Type    TargetType
+	BoardID string // Board identifier for multi-tenant setup (e.g., "board-a")
 }
 
 // --- Fizzy Payload Types (Generic JSON) ---
@@ -155,7 +156,7 @@ type OpenLink struct {
 func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 	actor := f.Creator.Name
 	if actor == "" {
-		actor = "Biri"
+		actor = "Someone"
 	}
 	verb, emoji := prettyAction(f)
 
@@ -169,7 +170,7 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 		if f.Board.Name != "" {
 			subjectTitle = f.Board.Name
 		} else {
-			subjectTitle = "Fizzy Bildirimi"
+			subjectTitle = "Fizzy Notification"
 		}
 	}
 
@@ -197,7 +198,7 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 	if f.Board.Name != "" && subjectTitle != f.Board.Name {
 		widgets = append(widgets, Widget{
 			DecoratedText: &DecoratedText{
-				TopLabel:  "Pano",
+				TopLabel:  "Board",
 				Text:      f.Board.Name,
 				StartIcon: &Icon{KnownIcon: "TICKET"},
 			},
@@ -209,7 +210,7 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 		ButtonList: &ButtonList{
 			Buttons: []Button{
 				{
-					Text: "Fizzy'de Görüntüle",
+					Text: "View in Fizzy",
 					Icon: &Icon{KnownIcon: "OPEN_IN_NEW"},
 					OnClick: &OnClick{
 						OpenLink: &OpenLink{URL: finalURL},
@@ -321,27 +322,120 @@ func main() {
 	}
 }
 
+// loadDynamicTargets scans environment variables for multi-tenant board configurations.
+// It looks for pattern: BOARD_{IDENTIFIER}_{TYPE}_URL
+// Example: BOARD_ENG_ZULIP_URL creates path /zulip/board-eng
+func loadDynamicTargets() []target {
+	var targets []target
+
+	// Parse all environment variables
+	for _, env := range os.Environ() {
+		// Split into key=value
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := parts[0]
+		value := parts[1]
+
+		// Check if it matches BOARD_{ID}_{TYPE}_URL pattern
+		if !strings.HasPrefix(key, "BOARD_") || !strings.HasSuffix(key, "_URL") {
+			continue
+		}
+
+		// Remove BOARD_ prefix and _URL suffix
+		middle := strings.TrimPrefix(key, "BOARD_")
+		middle = strings.TrimSuffix(middle, "_URL")
+
+		// Try to match known webhook types from the end
+		// This handles multi-word types like GOOGLE_CHAT correctly
+		var boardID string
+		var targetType TargetType
+		var pathPrefix string
+
+		middleUpper := strings.ToUpper(middle)
+
+		if strings.HasSuffix(middleUpper, "_GOOGLE_CHAT") || strings.HasSuffix(middleUpper, "_GOOGLECHAT") {
+			if strings.HasSuffix(middleUpper, "_GOOGLE_CHAT") {
+				boardID = middle[:len(middle)-len("_GOOGLE_CHAT")]
+			} else {
+				boardID = middle[:len(middle)-len("_GOOGLECHAT")]
+			}
+			targetType = TargetGoogleChat
+			pathPrefix = "google-chat"
+		} else if strings.HasSuffix(middleUpper, "_ZULIP") {
+			boardID = middle[:len(middle)-len("_ZULIP")]
+			targetType = TargetZulip
+			pathPrefix = "zulip"
+		} else if strings.HasSuffix(middleUpper, "_GOTIFY") {
+			boardID = middle[:len(middle)-len("_GOTIFY")]
+			targetType = TargetGotify
+			pathPrefix = "gotify"
+		} else {
+			// Unknown type, skip
+			continue
+		}
+
+		// Convert board ID to URL-safe format: lowercase with hyphens
+		// Example: MY_PROJECT -> my-project
+		boardPathID := strings.ToLower(strings.ReplaceAll(boardID, "_", "-"))
+
+		// Create target
+		target := target{
+			Name:    fmt.Sprintf("%s-%s", pathPrefix, boardPathID),
+			Path:    fmt.Sprintf("/%s/board-%s", pathPrefix, boardPathID),
+			URL:     value,
+			Type:    targetType,
+			BoardID: boardPathID,
+		}
+
+		targets = append(targets, target)
+	}
+
+	return targets
+}
+
+// loadLegacyTargets loads the original single-tenant webhook configurations.
+// This maintains backward compatibility with existing deployments.
+func loadLegacyTargets() []target {
+	return []target{
+		{
+			Name:    "zulip",
+			Path:    ensureLeadingSlash(envOrDefault("ZULIP_PATH", "/zulip")),
+			URL:     os.Getenv("ZULIP_WEBHOOK_URL"),
+			Type:    TargetZulip,
+			BoardID: "",
+		},
+		{
+			Name:    "google-chat",
+			Path:    ensureLeadingSlash(envOrDefault("GOOGLE_CHAT_PATH", "/google-chat")),
+			URL:     os.Getenv("GOOGLE_CHAT_WEBHOOK_URL"),
+			Type:    TargetGoogleChat,
+			BoardID: "",
+		},
+		{
+			Name:    "gotify",
+			Path:    ensureLeadingSlash(envOrDefault("GOTIFY_PATH", "/gotify")),
+			URL:     os.Getenv("GOTIFY_WEBHOOK_URL"),
+			Type:    TargetGotify,
+			BoardID: "",
+		},
+	}
+}
+
 func loadTargets() []target {
-	return filterTargets([]target{
-		{
-			Name: "zulip",
-			Path: ensureLeadingSlash(envOrDefault("ZULIP_PATH", "/zulip")),
-			URL:  os.Getenv("ZULIP_WEBHOOK_URL"),
-			Type: TargetZulip,
-		},
-		{
-			Name: "google-chat",
-			Path: ensureLeadingSlash(envOrDefault("GOOGLE_CHAT_PATH", "/google-chat")),
-			URL:  os.Getenv("GOOGLE_CHAT_WEBHOOK_URL"),
-			Type: TargetGoogleChat,
-		},
-		{
-			Name: "gotify",
-			Path: ensureLeadingSlash(envOrDefault("GOTIFY_PATH", "/gotify")),
-			URL:  os.Getenv("GOTIFY_WEBHOOK_URL"),
-			Type: TargetGotify,
-		},
-	})
+	// Load legacy single-tenant targets
+	legacy := loadLegacyTargets()
+
+	// Load dynamic multi-tenant targets
+	dynamic := loadDynamicTargets()
+
+	// Combine both
+	all := append(legacy, dynamic...)
+
+	// Filter out targets without URLs
+	return filterTargets(all)
 }
 
 func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
@@ -454,7 +548,7 @@ func translateToGotify(f FizzyPayload) ([]byte, error) {
 	verb, _ := prettyAction(f)
 	actor := f.Creator.Name
 	if actor == "" {
-		actor = "Biri"
+		actor = "Someone"
 	}
 	title := fmt.Sprintf("Fizzy: %s %s", actor, verb)
 	payload := GotifyPayload{
@@ -474,7 +568,7 @@ func translateToGotify(f FizzyPayload) ([]byte, error) {
 func buildMessage(f FizzyPayload) string {
 	actor := f.Creator.Name
 	if actor == "" {
-		actor = "Biri"
+		actor = "Someone"
 	}
 
 	verb, emoji := prettyAction(f)
@@ -492,7 +586,7 @@ func buildMessage(f FizzyPayload) string {
 		} else if f.Board.Name != "" {
 			subject = f.Board.Name
 		} else {
-			subject = "Fizzy Bildirimi"
+			subject = "Fizzy Notification"
 		}
 	}
 
@@ -505,13 +599,13 @@ func buildMessage(f FizzyPayload) string {
 	// Extras (Board Name, etc.)
 	var extras []string
 	if f.Board.Name != "" && subject != f.Board.Name {
-		extras = append(extras, fmt.Sprintf("🎫 **Pano:** %s", f.Board.Name))
+		extras = append(extras, fmt.Sprintf("🎫 **Board:** %s", f.Board.Name))
 	}
 
 	// Determine URL
 	urlStr := resolveFizzyURL(f)
 
-	if subject == f.Board.Name || subject == "Fizzy Bildirimi" {
+	if subject == f.Board.Name || subject == "Fizzy Notification" {
 		// inspect raw URLs not the resolved one which might be a search URL
 		rawURL := f.Eventable.URL
 		if rawURL == "" {
@@ -537,7 +631,7 @@ func buildMessage(f FizzyPayload) string {
 					}
 				}
 				if idPart != "" {
-					subject = fmt.Sprintf("Kart #%s", idPart)
+					subject = fmt.Sprintf("Card #%s", idPart)
 				}
 			}
 		}
@@ -546,7 +640,7 @@ func buildMessage(f FizzyPayload) string {
 	var sb strings.Builder
 
 	hideSubject := false
-	if f.Action == "comment_created" && strings.HasPrefix(subject, "Kart #") {
+	if f.Action == "comment_created" && strings.HasPrefix(subject, "Card #") {
 		hideSubject = true
 	}
 
@@ -566,7 +660,7 @@ func buildMessage(f FizzyPayload) string {
 		sb.WriteString(strings.Join(extras, "\n"))
 	}
 
-	sb.WriteString(fmt.Sprintf("\n\n[Fizzy'de Görüntüle ↗️](%s)", urlStr))
+	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy ↗️](%s)", urlStr))
 
 	return sb.String()
 }
@@ -706,50 +800,50 @@ func prettyAction(f FizzyPayload) (verb string, emoji string) {
 
 	switch action {
 	case "comment_created":
-		return "yorum yaptı", "💬"
+		return "commented", "💬"
 	case "card_created":
-		return "kart oluşturdu", "🃏"
+		return "created a card", "🃏"
 	case "card_published":
-		return "kart yayınladı", "📢"
+		return "published a card", "📢"
 	case "card_reopened":
-		return "kartı yeniden açtı", "🔄"
+		return "reopened the card", "🔄"
 	case "card_board_changed":
-		return "kartın panosunu değiştirdi", "📋"
+		return "changed the card's board", "📋"
 	case "card_moved":
 		if f.Column != nil && f.Column.Name != "" {
 			if f.Reason == "inactivity" {
-				return fmt.Sprintf("kartı hareketsizlik nedeniyle **%s** listesine taşıdı", f.Column.Name), "💤"
+				return fmt.Sprintf("moved the card to **%s** due to inactivity", f.Column.Name), "💤"
 			}
-			return fmt.Sprintf("kartı **%s** listesine taşıdı", f.Column.Name), "truck"
+			return fmt.Sprintf("moved the card to **%s**", f.Column.Name), "truck"
 		}
-		return "kartı taşıdı", "truck"
+		return "moved the card", "truck"
 	case "card_assigned":
 		if f.Assignee != nil && f.Assignee.Name != "" {
-			return fmt.Sprintf("kartı **%s** kişisine atadı", f.Assignee.Name), "👤"
+			return fmt.Sprintf("assigned the card to **%s**", f.Assignee.Name), "👤"
 		}
-		return "kartı birine atadı", "👤"
+		return "assigned the card to someone", "👤"
 	case "card_unassigned":
-		return "kart atamasını kaldırdı", "👤"
+		return "unassigned the card", "👤"
 	case "card_postponed":
-		return "kartı erteledi", "💤"
+		return "postponed the card", "💤"
 	case "card_closed":
 		if f.Column != nil && strings.EqualFold(f.Column.Name, "Done") {
-			return "kartı tamamladı", "✅"
+			return "completed the card", "✅"
 		}
-		return "kartı kapattı", "✅"
+		return "closed the card", "✅"
 	case "card_sent_back_to_triage":
-		return "kartı değerlendirmeye geri gönderdi", "↩️"
+		return "sent the card back to triage", "↩️"
 	case "card_archived":
 		// Check for "Done" or "Postponed" if possible...
 		if f.Column != nil {
 			if strings.EqualFold(f.Column.Name, "Done") {
-				return "kartı tamamladı", "✅"
+				return "completed the card", "✅"
 			}
 			if strings.EqualFold(f.Column.Name, "Postponed") || strings.EqualFold(f.Column.Name, "Not Now") {
-				return "kartı erteledi", "zzz"
+				return "postponed the card", "zzz"
 			}
 		}
-		return "kartı arşivledi", "📦"
+		return "archived the card", "📦"
 	default:
 		return strings.ReplaceAll(action, "_", " "), "📢"
 	}
