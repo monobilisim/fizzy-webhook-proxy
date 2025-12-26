@@ -1,8 +1,43 @@
-# Fizzy Webhook Proxy
+[![Contributors](https://img.shields.io/github/contributors/monobilisim/fizzy-webhook-proxy.svg?style=for-the-badge)](https://github.com/monobilisim/fizzy-webhook-proxy/graphs/contributors)
+[![Forks](https://img.shields.io/github/forks/monobilisim/fizzy-webhook-proxy.svg?style=for-the-badge)](https://github.com/monobilisim/fizzy-webhook-proxy/network/members)
+[![Stargazers](https://img.shields.io/github/stars/monobilisim/fizzy-webhook-proxy.svg?style=for-the-badge)](https://github.com/monobilisim/fizzy-webhook-proxy/stargazers)
+[![Issues](https://img.shields.io/github/issues/monobilisim/fizzy-webhook-proxy.svg?style=for-the-badge)](https://github.com/monobilisim/fizzy-webhook-proxy/issues)
+[![GPL License](https://img.shields.io/github/license/monobilisim/fizzy-webhook-proxy.svg?style=for-the-badge)](https://github.com/monobilisim/fizzy-webhook-proxy/blob/main/LICENSE)
 
-A middleware service that receives webhook requests from Fizzy and forwards them to platforms like Zulip, Google Chat, and Gotify in a proper format.
+[![Readme in English](https://img.shields.io/badge/Readme-English-blue)](https://github.com/monobilisim/fizzy-webhook-proxy/blob/main/README.md)
+
+<div align="center">
+  <a href="https://mono.net.tr/">
+    <img src="https://monobilisim.com.tr/images/mono-bilisim.svg" width="340" style="max-width: 100%;">
+  </a>
+
+## Fizzy Webhook Proxy
+
+</div>
+
+**Fizzy Webhook Proxy** is a middleware service that receives webhook requests from Fizzy and forwards them to platforms like Zulip, Google Chat, and Gotify in a proper format.
 
 Standard Fizzy notifications can be complex or incomplete. This service intercepts messages, cleans them up, organizes headers, and fixes broken comment links.
+
+---
+
+## Table of Contents
+
+- [Table of Contents](#table-of-contents)
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration](#configuration)
+  - [Single-Tenant Configuration](#single-tenant-configuration-simple-setup)
+  - [Multi-Tenant Configuration](#multi-tenant-configuration-multiple-boards)
+- [Starting the Service](#starting-the-service)
+- [Usage](#usage)
+  - [Single-Tenant Setup](#single-tenant-setup)
+  - [Multi-Tenant Setup](#multi-tenant-setup)
+- [Known Limitations](#known-limitations)
+- [To-Do](#to-do)
+- [License](#license)
+
+---
 
 ## Features
 
@@ -11,7 +46,9 @@ Standard Fizzy notifications can be complex or incomplete. This service intercep
 - **Deduplication:** Prevents the same event from being reported multiple times accidentally.
 - **Easy Setup:** Runs as a single binary file.
 
-## Installation (Binary)
+---
+
+## Installation
 
 You can download the latest version from the [GitHub Releases](https://github.com/monobilisim/fizzy-webhook-proxy/releases) page.
 
@@ -26,6 +63,8 @@ Alternatively, if you want to compile from source:
 ```bash
 sudo make install
 ```
+
+---
 
 ## Configuration
 
@@ -96,6 +135,8 @@ FIZZY_ROOT_URL=https://fizzy.example.com
 - Each board can have multiple webhook types (Zulip, Google Chat, Gotify)
 - You can mix single-tenant and multi-tenant configurations
 
+---
+
 ## Starting the Service
 
 ```bash
@@ -104,21 +145,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now fizzy-webhook-proxy
 ```
 
-## Known Limitations
-
-Due to some data deficiencies in Fizzy's webhook infrastructure:
-
-1.  **Card Title in Comment Notifications:**
-    - Fizzy does not send the card's text title (e.g., "Login Page Error") in the `comment_created` event.
-    - **Solution:** The proxy extracts the card number from the URL and displays a simple title like `[Person] commented` if the title is missing. The text title cannot be accessed without API integration.
-
-2.  **Assignee Name in Assignment Notifications:**
-    - The `card_assigned` event does not include information about *who* the card was assigned to in the payload.
-    - **Solution:** The notification is displayed with a generic message like "assigned the card to someone".
-
-3.  **Duplicate Notifications:**
-    - Fizzy can sometimes send the same event (especially `card_reopened`) twice within milliseconds.
-    - **Solution:** The proxy has a 2-second `deduplication` mechanism; if the same event repeats, the second one is ignored.
+---
 
 ## Usage
 
@@ -151,8 +178,34 @@ For each board, enter the board-specific webhook URLs:
 
 The board identifier in the URL (`board-eng`, `board-product`) must match the identifier in your environment variables (`BOARD_ENG_*`, `BOARD_PRODUCT_*`).
 
+---
+
+## Known Limitations
+
+Due to some data deficiencies in Fizzy's webhook infrastructure:
+
+1.  **Card Title in Comment Notifications:**
+    - Fizzy does not send the card's text title (e.g., "Login Page Error") in the `comment_created` event.
+    - **Solution:** The proxy extracts the card number from the URL and displays a simple title like `[Person] commented` if the title is missing. The text title cannot be accessed without API integration.
+
+2.  **Assignee Name in Assignment Notifications:**
+    - The `card_assigned` event does not include information about *who* the card was assigned to in the payload.
+    - **Solution:** The notification is displayed with a generic message like "assigned the card to someone".
+
+3.  **Duplicate Notifications:**
+    - Fizzy can sometimes send the same event (especially `card_reopened`) twice within milliseconds.
+    - **Solution:** The proxy has a 2-second `deduplication` mechanism; if the same event repeats, the second one is ignored.
+
+---
+
 ## To-Do
 
 - [ ] Add Telegram support
 - [ ] Add Slack support
 - [ ] Expand unit tests
+
+---
+
+## License
+
+Fizzy Webhook Proxy is licensed under GPL-3.0. See the [LICENSE](https://github.com/monobilisim/fizzy-webhook-proxy/blob/main/LICENSE) file for details.
