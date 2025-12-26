@@ -1,54 +1,54 @@
 # Fizzy Webhook Proxy
 
-Fizzy'den gelen webhook isteklerini alıp Zulip, Google Chat ve Gotify gibi platformlara düzgün bir formatta ileten ara katman servisi.
+A middleware service that receives webhook requests from Fizzy and forwards them to platforms like Zulip, Google Chat, and Gotify in a proper format.
 
-Standart Fizzy bildirimleri karmaşık veya eksik olabiliyor. Bu servis araya girip mesajları temizliyor, başlıkları düzenliyor ve bozuk yorum linklerini onarıyor.
+Standard Fizzy notifications can be complex or incomplete. This service intercepts messages, cleans them up, organizes headers, and fixes broken comment links.
 
-## Özellikler
+## Features
 
-- **Zengin Bildirimler:** Google Chat ve Zulip için kart görünümleri, Gotify için düzenli Markdown formatı.
-- **Akıllı Linkler:** Yorum linklerini düzeltir, ilgili karta ve yorum ID'sine yönlendirir.
-- **Deduplication:** Aynı olayın yanlışlıkla birden fazla kez bildirilmesini engeller.
-- **Kolay Kurulum:** Tek bir binary dosya olarak çalışır.
+- **Rich Notifications:** Card views for Google Chat and Zulip, clean Markdown format for Gotify.
+- **Smart Links:** Fixes comment links, redirects to the relevant card and comment ID.
+- **Deduplication:** Prevents the same event from being reported multiple times accidentally.
+- **Easy Setup:** Runs as a single binary file.
 
-## Kurulum (Binary ile)
+## Installation (Binary)
 
-En son sürümü [GitHub Releases](https://github.com/monobilisim/fizzy-webhook-proxy/releases) sayfasından indirebilirsiniz.
+You can download the latest version from the [GitHub Releases](https://github.com/monobilisim/fizzy-webhook-proxy/releases) page.
 
 ```bash
-# Binary'yi indir ve çalıştırılabilir yap
+# Download the binary and make it executable
 wget https://github.com/monobilisim/fizzy-webhook-proxy/releases/latest/download/fizzy-webhook-proxy
 chmod +x fizzy-webhook-proxy
 sudo mv fizzy-webhook-proxy /usr/local/bin/
 ```
 
-Alternatif olarak kaynak kodu derlemek isterseniz:
+Alternatively, if you want to compile from source:
 ```bash
 sudo make install
 ```
 
-## Ayarlar
+## Configuration
 
-Servisin çalışması için `/etc/default/fizzy-webhook-proxy` dosyasında (veya `.env` dosyasında) ayarların yapılması gerekir:
+The service requires configuration in the `/etc/default/fizzy-webhook-proxy` file (or `.env` file):
 
 ```bash
 sudo vim /etc/default/fizzy-webhook-proxy
 ```
 
 ```env
-# Servis Portu
+# Service Port
 PORT=8080
 
-# Webhook Adresleri (Kullanılmayanları boş bırakabilirsiniz)
+# Webhook URLs (You can leave unused ones empty)
 ZULIP_WEBHOOK_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=your_api_key&stream=your_stream&topic=your_topic
 GOOGLE_CHAT_WEBHOOK_URL=https://chat.googleapis.com/v1/spaces/...
 GOTIFY_WEBHOOK_URL=https://gotify.example.com/message?token=...
 
-# Fizzy Link Düzeltme
+# Fizzy Link Fixing
 FIZZY_ROOT_URL=https://fizzy.example.com
 ```
 
-## Servisi Başlatma
+## Starting the Service
 
 ```bash
 sudo cp deployment/fizzy-webhook-proxy.service /etc/systemd/system/
@@ -56,25 +56,25 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now fizzy-webhook-proxy
 ```
 
-## Bilinen Limitasyonlar
+## Known Limitations
 
-Fizzy Webhook altyapısındaki bazı veri eksiklikleri nedeniyle:
+Due to some data deficiencies in Fizzy's webhook infrastructure:
 
-1.  **Yorum Bildirimlerinde Kart Başlığı:**
-    - Fizzy, `comment_created` olayında kartın metin başlığını (örn. "Login Sayfası Hatası") göndermez.
-    - **Çözüm:** Proxy, URL'den kart numarasını ayıklar ve başlık eksikse `[Kişi] yorum yaptı` şeklinde sade bir başlık gösterir. Metin başlığına API entegrasyonu olmadan erişilemez.
+1.  **Card Title in Comment Notifications:**
+    - Fizzy does not send the card's text title (e.g., "Login Page Error") in the `comment_created` event.
+    - **Solution:** The proxy extracts the card number from the URL and displays a simple title like `[Person] commented` if the title is missing. The text title cannot be accessed without API integration.
 
-2.  **Atama Bildirimlerinde Kişi İsmi:**
-    - `card_assigned` olayında kartın *kime* atandığı bilgisi payload içinde gelmez.
-    - **Çözüm:** Bildirim "kartı birine atadı" şeklinde genel bir ifadeyle gösterilir.
+2.  **Assignee Name in Assignment Notifications:**
+    - The `card_assigned` event does not include information about *who* the card was assigned to in the payload.
+    - **Solution:** The notification is displayed with a generic message like "assigned the card to someone".
 
-3.  **Çifte Bildirimler:**
-    - Fizzy bazen aynı olayı (özellikle `card_reopened`) milisaniyeler içinde iki kez gönderebilir.
-    - **Çözüm:** Proxy içinde 2 saniyelik bir `deduplication` mekanizması vardır; aynı olay tekrarlanırsa ikincisi yoksayılır.
+3.  **Duplicate Notifications:**
+    - Fizzy can sometimes send the same event (especially `card_reopened`) twice within milliseconds.
+    - **Solution:** The proxy has a 2-second `deduplication` mechanism; if the same event repeats, the second one is ignored.
 
-## Kullanım
+## Usage
 
-Fizzy proje ayarlarından **Webhooks** ekleyin. Aşağıdaki olayları (Events) seçmenizi öneririz:
+Add **Webhooks** from Fizzy project settings. We recommend selecting the following events:
 
 - `card_created`, `card_published`
 - `comment_created`
@@ -83,13 +83,13 @@ Fizzy proje ayarlarından **Webhooks** ekleyin. Aşağıdaki olayları (Events) 
 - `card_closed`, `card_reopened`, `card_archived`
 - `card_postponed`, `card_sent_back_to_triage`
 
-URL kısmına proxy adresini yaz:
-- Zulip için: `https://proxy.adresiniz.com/zulip`
-- Google Chat için: `https://proxy.adresiniz.com/google-chat`
-- Gotify için: `https://proxy.adresiniz.com/gotify`
+Enter the proxy address in the URL field:
+- For Zulip: `https://your-proxy-address.com/zulip`
+- For Google Chat: `https://your-proxy-address.com/google-chat`
+- For Gotify: `https://your-proxy-address.com/gotify`
 
-## Yapılacaklar (To-Do)
+## To-Do
 
-- [ ] Telegram desteği ekle
-- [ ] Slack desteği ekle
-- [ ] Birim testlerini (Unit Tests) genişlet
+- [ ] Add Telegram support
+- [ ] Add Slack support
+- [ ] Expand unit tests
