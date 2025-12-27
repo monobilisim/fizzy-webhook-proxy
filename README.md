@@ -140,7 +140,7 @@ FIZZY_ROOT_URL=https://fizzy.example.com
 ## Starting the Service
 
 ```bash
-sudo cp deployment/fizzy-webhook-proxy.service /etc/systemd/system/
+sudo wget https://raw.githubusercontent.com/monobilisim/fizzy-webhook-proxy/refs/heads/main/deployment/fizzy-webhook-proxy.service -O /etc/systemd/system/fizzy-webhook-proxy.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now fizzy-webhook-proxy
 ```
