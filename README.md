@@ -54,9 +54,8 @@ You can download the latest version from the [GitHub Releases](https://github.co
 
 ```bash
 # Download the binary and make it executable
-wget https://github.com/monobilisim/fizzy-webhook-proxy/releases/latest/download/fizzy-webhook-proxy
-chmod +x fizzy-webhook-proxy
-sudo mv fizzy-webhook-proxy /usr/local/bin/
+sudo wget https://github.com/monobilisim/fizzy-webhook-proxy/releases/latest/download/fizzy-webhook-proxy -O /usr/local/bin/fizzy-webhook-proxy
+sudo chmod +x /usr/local/bin/fizzy-webhook-proxy
 ```
 
 Alternatively, if you want to compile from source:
