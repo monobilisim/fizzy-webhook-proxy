@@ -47,89 +47,50 @@ sudo make install
 
 ## Configuration
 
-You can configure the proxy in two ways:
+Create a configuration file in one of these locations:
 
-1.  **System-wide:** Create a file at `/etc/default/fizzy-webhook-proxy`.
-2.  **Locally:** Create a `.env` file in the same directory as the executable.
+1. **System-wide:** `/etc/default/fizzy-webhook-proxy`
+2. **Locally:** `.env` file in the same directory as the executable
 
-The service will load environment variables from these files at startup.
+### Quick Start
 
-### Environment Variables
+Copy `.env.example` to `.env` and configure:
 
-A comprehensive reference for all environment variables can be found in the `.env.example` file. Here is an example configuration with all supported target types:
-
-```env
-# Required: HTTP server port
+```bash
+# Required
 PORT=8080
-
-# Required: Authentication token for URL prefix
-# All webhook URLs will be prefixed with /{TOKEN}/
-# Example: TOKEN=abc123 means URLs become /abc123/zulip instead of /zulip
 TOKEN=your_secret_token
 
-# Optional: Enable debug logging
-# DEBUG=true
-
-# =============================================================================
-# Webhook Targets
-# =============================================================================
-# Pattern: {IDENTIFIER}_URL
-#
-# Type auto-detection from URL:
-#   - chat.googleapis.com  -> google-chat
-#   - slack_incoming       -> zulip
-#   - /message?token       -> gotify
-#
-# URL path will be: /{TOKEN}/{identifier}
-# Underscores in identifier are converted to hyphens (STATUS_PAGE -> status-page)
-
-# Example: Zulip
-ZULIP_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=your_api_key&stream=your_stream&topic=your_topic
-
-# Example: Google Chat
-GOOGLE_CHAT_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=your_key&token=your_token
-
-# Example: Gotify
-GOTIFY_URL=https://gotify.example.com/message?token=your_token
-
-# You can also use multiple targets for different teams/projects
-# PERSONAL_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=notifications&topic=personal
-# TEST_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=notifications&topic=test
-
-# =============================================================================
-# Fizzy Link Configuration (Optional)
-# =============================================================================
-# FIZZY_ROOT_URL=https://fizzy.example.com
-# FIZZY_ACCOUNT_SLUG=your_account_slug
+# Add your webhook target (choose one or more)
+ZULIP_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=KEY&stream=STREAM&topic=TOPIC
 ```
 
-### Endpoints
+The webhook URL will be: `http://your-server:8080/your_secret_token/zulip`
 
-Based on the example above, the following endpoints would be created:
+### Multiple Targets
 
--   `http://localhost:8080/your_secret_token/zulip`
--   `http://localhost:8080/your_secret_token/google-chat`
--   `http://localhost:8080/your_secret_token/gotify`
+You can configure multiple targets for different boards:
 
-You can then use these URLs in your Fizzy webhook settings.
+```bash
+BOARD1_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=board1
+BOARD2_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=...&token=...
+```
 
-### Type Auto-Detection
+This creates:
+- `http://your-server:8080/your_secret_token/board1`
+- `http://your-server:8080/your_secret_token/board2`
 
-| URL Pattern           | Detected Type |
-| --------------------- | ------------- |
-| `chat.googleapis.com` | google-chat   |
-| `slack_incoming`      | zulip         |
-| `/message?token`      | gotify        |
+### Supported Platforms
 
-### Identifier Naming
+The type is auto-detected from the URL:
 
--   `PERSONAL_URL` → `/{TOKEN}/personal`
--   `STATUS_PAGE_URL` → `/{TOKEN}/status-page` (underscores become hyphens)
+| URL Pattern           | Platform     |
+| --------------------- | ------------ |
+| `chat.googleapis.com` | Google Chat  |
+| `slack_incoming`      | Zulip        |
+| `/message?token`      | Gotify       |
 
-### Security
-
--   **TOKEN is required** - URLs are unpredictable
--   Browser shows `/identifier` only, full path with token shown in service logs
+For more options, see `.env.example`
 
 ---
 
