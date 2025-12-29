@@ -54,18 +54,22 @@ Create a configuration file in one of these locations:
 
 ### Quick Start
 
-Copy `.env.example` to `.env` and configure:
+Copy the example configuration:
 
 ```bash
-# Required
+sudo cp deployment/fizzy-webhook-proxy /etc/default/fizzy-webhook-proxy
+sudo nano /etc/default/fizzy-webhook-proxy
+```
+
+Minimum required settings:
+
+```bash
 PORT=8080
 TOKEN=your_secret_token
-
-# Add your webhook target (choose one or more)
 ZULIP_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=KEY&stream=STREAM&topic=TOPIC
 ```
 
-The webhook URL will be: `http://your-server:8080/your_secret_token/zulip`
+Your webhook URL: `http://your-server:8080/your_secret_token/zulip`
 
 ### Multiple Targets
 
@@ -90,7 +94,7 @@ The type is auto-detected from the URL:
 | `slack_incoming`      | Zulip        |
 | `/message?token`      | Gotify       |
 
-For more options, see `.env.example`
+For more options, see `deployment/fizzy-webhook-proxy`
 
 ---
 
