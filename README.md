@@ -25,21 +25,27 @@ Standard Fizzy notifications can be complex or incomplete. This service intercep
 
 - **Rich Notifications:** Card views for Google Chat, clean Markdown format for Zulip and Gotify.
 - **Smart Links:** Fixes comment links, redirects to the relevant card and comment ID.
-- **Deduplication:** Prevents the same event from being reported multiple times.
-- **Type Auto-Detection:** Automatically detects webhook type from URL.
+- **Deduplication:** Prevents the same event from being reported multiple times (2-second window).
+- **Type Auto-Detection:** Automatically detects webhook type from URL pattern.
 - **Token Authentication:** Required URL prefix for security.
+- **Multiple Targets:** Configure different webhooks for different Fizzy boards.
 
 ---
 
 ## Installation
+
+### Binary Download
 
 ```bash
 sudo wget https://github.com/monobilisim/fizzy-webhook-proxy/releases/latest/download/fizzy-webhook-proxy -O /usr/local/bin/fizzy-webhook-proxy
 sudo chmod +x /usr/local/bin/fizzy-webhook-proxy
 ```
 
-Or compile from source:
+### Build from Source
+
 ```bash
+git clone https://github.com/monobilisim/fizzy-webhook-proxy.git
+cd fizzy-webhook-proxy
 sudo make install
 ```
 
@@ -47,87 +53,206 @@ sudo make install
 
 ## Configuration
 
-Create a configuration file in one of these locations:
+Configuration can be provided via:
 
 1. **System-wide:** `/etc/default/fizzy-webhook-proxy`
-2. **Locally:** `.env` file in the same directory as the executable
+2. **Local:** `.env` file in the working directory
 
-### Quick Start
-
-Copy the example configuration:
+### Quick Setup
 
 ```bash
-sudo cp deployment/fizzy-webhook-proxy /etc/default/fizzy-webhook-proxy
+sudo wget https://raw.githubusercontent.com/monobilisim/fizzy-webhook-proxy/main/deployment/fizzy-webhook-proxy \
+  -O /etc/default/fizzy-webhook-proxy
 sudo nano /etc/default/fizzy-webhook-proxy
 ```
 
-Minimum required settings:
+---
 
-```bash
-PORT=8080
-TOKEN=your_secret_token
-ZULIP_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=KEY&stream=STREAM&topic=TOPIC
-```
+## Environment Variables
 
-Your webhook URL: `http://your-server:8080/your_secret_token/zulip`
+### Required Settings
 
-### Multiple Targets
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `TOKEN` | **Required.** Security token for URL prefix. All webhook URLs will be `/{TOKEN}/{identifier}` | `my_secret_token` |
+| `PORT` | HTTP server port (default: `3499`) | `3499` |
 
-You can configure multiple targets for different boards:
+### Webhook Targets
 
-```bash
-BOARD1_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=board1
-BOARD2_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=...&token=...
-```
+Define targets using the pattern `{IDENTIFIER}_URL`. The identifier automatically becomes the URL path.
 
-This creates:
-- `http://your-server:8080/your_secret_token/board1`
-- `http://your-server:8080/your_secret_token/board2`
+| Variable Pattern | URL Path | Notes |
+|------------------|----------|-------|
+| `ZULIP_URL` | `/{TOKEN}/zulip` | Single-word identifier |
+| `IDENTIFIER1_URL` | `/{TOKEN}/identifier1` | Generic naming |
+| `MY_TARGET_URL` | `/{TOKEN}/my-target` | Underscores → hyphens in URL |
+| `GOOGLE_CHAT_URL` | `/{TOKEN}/google-chat` | Type auto-detected from URL |
 
-### Supported Platforms
+> **Naming Rule:** Environment variable `{IDENTIFIER}_URL` creates endpoint `/{TOKEN}/{identifier}`. Underscores in the identifier become hyphens in the URL path.
 
-The type is auto-detected from the URL:
+**Supported Platforms (Auto-detected):**
 
-| URL Pattern           | Platform     |
-| --------------------- | ------------ |
-| `chat.googleapis.com` | Google Chat  |
-| `slack_incoming`      | Zulip        |
-| `/message?token`      | Gotify       |
+| URL Pattern | Platform | Notes |
+|-------------|----------|-------|
+| Contains `slack_incoming` | Zulip | Zulip's Slack-compatible webhook |
+| Contains `chat.googleapis.com` | Google Chat | Google Chat webhook |
+| Contains `/message?token` | Gotify | Gotify push notification |
 
-For more options, see `deployment/fizzy-webhook-proxy`
+If auto-detection fails, set `{IDENTIFIER}_TYPE` explicitly (e.g., `ZULIP_TYPE=zulip`).
+
+### Fizzy Link Configuration
+
+These settings are **highly recommended** for proper link generation in notifications:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `FIZZY_ROOT_URL` | Your Fizzy instance URL. Required for correct card/comment links. | `https://fizzy.example.com` |
+| `FIZZY_ACCOUNT_SLUG` | Your Fizzy account slug. Extracted from `FIZZY_ROOT_URL` if not set. | `my-company` |
+
+> **Important:** Without `FIZZY_ROOT_URL`, notification links may point to incorrect domains or use placeholder URLs (`fizzy.example.com`).
+
+### Optional Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DEBUG` | Enable verbose logging | `false` |
 
 ---
 
-## Starting the Service
+## Example Configuration
 
 ```bash
-sudo wget https://raw.githubusercontent.com/monobilisim/fizzy-webhook-proxy/refs/heads/main/deployment/fizzy-webhook-proxy.service -O /etc/systemd/system/fizzy-webhook-proxy.service
+# ==============================================================================
+# REQUIRED SETTINGS
+# ==============================================================================
+
+# HTTP server port (3499 = "FIZZ" on phone keypad)
+PORT=3499
+
+# Security token - all webhook URLs will be: /{TOKEN}/{identifier}
+TOKEN=your_secret_token_here
+
+# ==============================================================================
+# FIZZY LINK CONFIGURATION (Recommended)
+# ==============================================================================
+
+# Your Fizzy instance URL - ensures notification links work correctly
+FIZZY_ROOT_URL=https://fizzy.example.com
+
+# Account slug (optional if FIZZY_ROOT_URL contains it)
+# FIZZY_ACCOUNT_SLUG=my-company
+
+# ==============================================================================
+# WEBHOOK TARGETS
+# ==============================================================================
+# Pattern: {IDENTIFIER}_URL=https://...
+# URL path: /{TOKEN}/{identifier} (underscores become hyphens)
+
+# Zulip (auto-detected from "slack_incoming" in URL)
+ZULIP_URL=https://chat.example.com/api/v1/external/slack_incoming?api_key=KEY&stream=fizzy&topic=notifications
+
+# Google Chat (auto-detected from "chat.googleapis.com")
+GOOGLE_CHAT_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=KEY&token=TOKEN
+
+# Gotify (auto-detected from "/message?token")
+GOTIFY_URL=https://gotify.example.com/message?token=APP_TOKEN
+
+# Multiple targets example
+# IDENTIFIER1_URL=https://chat.example.com/api/v1/external/slack_incoming?...&stream=stream1
+# IDENTIFIER2_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?...
+#
+# Multi-word identifier example (underscores become hyphens in URL path):
+# MY_TARGET_URL=https://...  → endpoint becomes: /{TOKEN}/my-target
+
+# ==============================================================================
+# OPTIONAL SETTINGS
+# ==============================================================================
+
+# Enable debug logging
+# DEBUG=true
+```
+
+This configuration creates the following webhook endpoints:
+- `https://your-proxy:3499/your_secret_token_here/zulip`
+- `https://your-proxy:3499/your_secret_token_here/google-chat`
+- `https://your-proxy:3499/your_secret_token_here/gotify`
+- `https://your-proxy:3499/your_secret_token_here/identifier1` (if uncommented)
+- `https://your-proxy:3499/your_secret_token_here/identifier2` (if uncommented)
+- `https://your-proxy:3499/your_secret_token_here/my-target` (if uncommented, note: underscore → hyphen)
+
+---
+
+## Systemd Service
+
+### Install Service
+
+```bash
+sudo wget https://raw.githubusercontent.com/monobilisim/fizzy-webhook-proxy/main/deployment/fizzy-webhook-proxy.service \
+  -O /etc/systemd/system/fizzy-webhook-proxy.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now fizzy-webhook-proxy
 ```
 
+### Manage Service
+
+```bash
+sudo systemctl status fizzy-webhook-proxy   # Check status
+sudo systemctl restart fizzy-webhook-proxy  # Restart after config change
+sudo journalctl -u fizzy-webhook-proxy -f   # View logs
+```
+
 ---
 
-## Usage
+## Fizzy Webhook Setup
 
-Add webhooks from Fizzy project settings with these events:
+1. Go to your Fizzy project settings
+2. Navigate to **Webhooks** section
+3. Add a new webhook with URL: `https://your-proxy/{TOKEN}/{identifier}`
+4. Select the events you want to receive:
 
-- `card_created`, `card_published`
-- `comment_created`
-- `card_moved`, `card_board_changed`
-- `card_assigned`, `card_unassigned`
-- `card_closed`, `card_reopened`, `card_archived`
-- `card_postponed`, `card_sent_back_to_triage`
-
-Enter: `https://your-proxy-address.com/{TOKEN}/{identifier}`
+| Event | Description |
+|-------|-------------|
+| `card_created` | New card created |
+| `card_published` | Card published to board |
+| `comment_created` | New comment on a card |
+| `card_moved` | Card moved to different column |
+| `card_board_changed` | Card moved to different board |
+| `card_assigned` | Card assigned to someone |
+| `card_unassigned` | Card unassigned |
+| `card_closed` | Card closed/completed |
+| `card_reopened` | Card reopened |
+| `card_archived` | Card archived |
+| `card_postponed` | Card postponed |
+| `card_sent_back_to_triage` | Card sent back to triage |
 
 ---
 
 ## Known Limitations
 
-1. **Card Title in Comments:** Fizzy doesn't send card title in `comment_created` - proxy extracts card number from URL.
-2. **Assignee Name:** `card_assigned` doesn't include assignee info - shows "assigned to someone".
-3. **Duplicate Events:** Fizzy may send same event twice - proxy has 2-second deduplication.
+| Limitation | Description | Workaround |
+|------------|-------------|------------|
+| Card title in comments | Fizzy doesn't send card title in `comment_created` events | Proxy extracts card number from URL |
+| Assignee details | `card_assigned` doesn't include assignee name | Shows "assigned to someone" |
+| Duplicate events | Fizzy may send the same event twice | 2-second deduplication window |
+| Comment deep links | Direct comment links require search fallback | Links use search with comment anchor |
+
+---
+
+## Troubleshooting
+
+### No notifications received
+
+1. Check service status: `sudo systemctl status fizzy-webhook-proxy`
+2. Verify webhook URL in Fizzy settings matches your configuration
+3. Enable debug mode: `DEBUG=true` and check logs
+
+### Links point to wrong domain
+
+Set `FIZZY_ROOT_URL` to your actual Fizzy instance URL.
+
+### Type detection fails
+
+Set the type explicitly: `{IDENTIFIER}_TYPE=zulip|google-chat|gotify`
 
 ---
 

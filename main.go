@@ -227,7 +227,7 @@ func detectTargetType(webhookURL string) TargetType {
 func main() {
 	loadDotEnv(".env")
 
-	port := envOrDefault("PORT", "8080")
+	port := envOrDefault("PORT", "3499") // "FIZZ" on phone keypad
 	debugMode = os.Getenv("DEBUG") == "true"
 	authToken = os.Getenv("TOKEN")
 
