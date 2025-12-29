@@ -47,42 +47,89 @@ sudo make install
 
 ## Configuration
 
-```bash
-sudo wget https://raw.githubusercontent.com/monobilisim/fizzy-webhook-proxy/refs/heads/main/deployment/fizzy-webhook-proxy -O /etc/default/fizzy-webhook-proxy
-```
+You can configure the proxy in two ways:
 
-Edit `/etc/default/fizzy-webhook-proxy`:
+1.  **System-wide:** Create a file at `/etc/default/fizzy-webhook-proxy`.
+2.  **Locally:** Create a `.env` file in the same directory as the executable.
+
+The service will load environment variables from these files at startup.
+
+### Environment Variables
+
+A comprehensive reference for all environment variables can be found in the `.env.example` file. Here is an example configuration with all supported target types:
 
 ```env
+# Required: HTTP server port
 PORT=8080
+
+# Required: Authentication token for URL prefix
+# All webhook URLs will be prefixed with /{TOKEN}/
+# Example: TOKEN=abc123 means URLs become /abc123/zulip instead of /zulip
 TOKEN=your_secret_token
 
-# Webhook targets: {IDENTIFIER}_URL
-PERSONAL_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=notifications&topic=personal
-TEST_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=notifications&topic=test
+# Optional: Enable debug logging
+# DEBUG=true
+
+# =============================================================================
+# Webhook Targets
+# =============================================================================
+# Pattern: {IDENTIFIER}_URL
+#
+# Type auto-detection from URL:
+#   - chat.googleapis.com  -> google-chat
+#   - slack_incoming       -> zulip
+#   - /message?token       -> gotify
+#
+# URL path will be: /{TOKEN}/{identifier}
+# Underscores in identifier are converted to hyphens (STATUS_PAGE -> status-page)
+
+# Example: Zulip
+ZULIP_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=your_api_key&stream=your_stream&topic=your_topic
+
+# Example: Google Chat
+GOOGLE_CHAT_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=your_key&token=your_token
+
+# Example: Gotify
+GOTIFY_URL=https://gotify.example.com/message?token=your_token
+
+# You can also use multiple targets for different teams/projects
+# PERSONAL_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=notifications&topic=personal
+# TEST_URL=https://zulip.example.com/api/v1/external/slack_incoming?api_key=...&stream=notifications&topic=test
+
+# =============================================================================
+# Fizzy Link Configuration (Optional)
+# =============================================================================
+# FIZZY_ROOT_URL=https://fizzy.example.com
+# FIZZY_ACCOUNT_SLUG=your_account_slug
 ```
 
-This creates endpoints:
-- `/{TOKEN}/personal`
-- `/{TOKEN}/test`
+### Endpoints
+
+Based on the example above, the following endpoints would be created:
+
+-   `http://localhost:8080/your_secret_token/zulip`
+-   `http://localhost:8080/your_secret_token/google-chat`
+-   `http://localhost:8080/your_secret_token/gotify`
+
+You can then use these URLs in your Fizzy webhook settings.
 
 ### Type Auto-Detection
 
-| URL Pattern | Detected Type |
-|-------------|---------------|
-| `chat.googleapis.com` | google-chat |
-| `slack_incoming` | zulip |
-| `/message?token` | gotify |
+| URL Pattern           | Detected Type |
+| --------------------- | ------------- |
+| `chat.googleapis.com` | google-chat   |
+| `slack_incoming`      | zulip         |
+| `/message?token`      | gotify        |
 
 ### Identifier Naming
 
-- `PERSONAL_URL` → `/{TOKEN}/personal`
-- `STATUS_PAGE_URL` → `/{TOKEN}/status-page` (underscores become hyphens)
+-   `PERSONAL_URL` → `/{TOKEN}/personal`
+-   `STATUS_PAGE_URL` → `/{TOKEN}/status-page` (underscores become hyphens)
 
 ### Security
 
-- **TOKEN is required** - URLs are unpredictable
-- Browser shows `/identifier` only, full path with token shown in service logs
+-   **TOKEN is required** - URLs are unpredictable
+-   Browser shows `/identifier` only, full path with token shown in service logs
 
 ---
 
