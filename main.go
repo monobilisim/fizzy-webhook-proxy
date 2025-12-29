@@ -26,11 +26,11 @@ const (
 )
 
 type target struct {
-	Name    string
-	Path    string
-	URL     string
-	Type    TargetType
-	BoardID string // Board identifier for multi-tenant setup (e.g., "board-a")
+	Name       string
+	Path       string // The path to listen on (includes token prefix if set)
+	URL        string
+	Type       TargetType
+	Identifier string // The identifier from config (e.g., "zulip", "eng-team")
 }
 
 // --- Fizzy Payload Types (Generic JSON) ---
@@ -153,91 +153,6 @@ type OpenLink struct {
 	URL string `json:"url"`
 }
 
-func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
-	actor := f.Creator.Name
-	if actor == "" {
-		actor = "Someone"
-	}
-	verb, emoji := prettyAction(f)
-
-	finalURL := resolveFizzyURL(f)
-
-	// Title: The Subject (Card Title, Board Name, or generic "Fizzy")
-	// Subtitle: The Event (Actor + Verb)
-
-	subjectTitle := f.Eventable.Title
-	if subjectTitle == "" {
-		if f.Board.Name != "" {
-			subjectTitle = f.Board.Name
-		} else {
-			subjectTitle = "Fizzy Notification"
-		}
-	}
-
-	headerSubtitle := fmt.Sprintf("%s %s", actor, verb)
-
-	// Card Header
-	header := CardHeader{
-		Title:    subjectTitle,
-		Subtitle: headerSubtitle,
-		ImageURL: "",
-	}
-
-	// Widgets
-	var widgets []Widget
-
-	// Add Comment Body if available
-	if f.Eventable.Body.PlainText != "" {
-		widgets = append(widgets, Widget{
-			TextParagraph: &TextParagraph{
-				Text: f.Eventable.Body.PlainText,
-			},
-		})
-	}
-
-	if f.Board.Name != "" && subjectTitle != f.Board.Name {
-		widgets = append(widgets, Widget{
-			DecoratedText: &DecoratedText{
-				TopLabel:  "Board",
-				Text:      f.Board.Name,
-				StartIcon: &Icon{KnownIcon: "TICKET"},
-			},
-		})
-	}
-
-	// Button Widget
-	widgets = append(widgets, Widget{
-		ButtonList: &ButtonList{
-			Buttons: []Button{
-				{
-					Text: "View in Fizzy",
-					Icon: &Icon{KnownIcon: "OPEN_IN_NEW"},
-					OnClick: &OnClick{
-						OpenLink: &OpenLink{URL: finalURL},
-					},
-				},
-			},
-		},
-	})
-
-	card := CardV2{
-		CardID: fmt.Sprintf("fizzy-%d", time.Now().UnixNano()),
-		Card: Card{
-			Header:   header,
-			Sections: []CardSection{{Widgets: widgets}},
-		},
-	}
-
-	// Fallback text for mobile push notifications or unsupported clients
-	fallbackText := fmt.Sprintf("%s %s %s: %s", emoji, actor, verb, subjectTitle)
-
-	payload := GoogleChatPayload{
-		Text:    fallbackText,
-		CardsV2: []CardV2{card},
-	}
-	return json.Marshal(payload)
-}
-
 type GotifyPayload struct {
 	Message  string                 `json:"message"`
 	Title    string                 `json:"title,omitempty"`
@@ -257,6 +172,7 @@ var (
 	dedupeCache = make(map[DedupeKey]time.Time)
 	dedupeMu    sync.Mutex
 	debugMode   bool
+	authToken   string // Global TOKEN for URL prefix
 )
 
 func isDuplicate(targetName, action, eventableID string) bool {
@@ -271,9 +187,6 @@ func isDuplicate(targetName, action, eventableID string) bool {
 	lastTime, found := dedupeCache[key]
 	now := time.Now()
 
-	// Cleanup old entries randomly/occasionally or just let it grow (it's small enough for this use case usually, but better to be safe)
-	// For simplicity, we won't do full GC here, but strict 2-second window check.
-
 	if found {
 		if now.Sub(lastTime) < 2*time.Second {
 			return true
@@ -284,6 +197,31 @@ func isDuplicate(targetName, action, eventableID string) bool {
 	return false
 }
 
+// --- Type Detection from URL ---
+
+// detectTargetType attempts to infer the target type from the webhook URL.
+// Returns empty string if type cannot be detected.
+func detectTargetType(webhookURL string) TargetType {
+	lowerURL := strings.ToLower(webhookURL)
+
+	// Google Chat: chat.googleapis.com
+	if strings.Contains(lowerURL, "chat.googleapis.com") {
+		return TargetGoogleChat
+	}
+
+	// Zulip: slack_incoming in URL (Zulip's Slack-compatible webhook)
+	if strings.Contains(lowerURL, "slack_incoming") {
+		return TargetZulip
+	}
+
+	// Gotify: /message?token pattern
+	if strings.Contains(lowerURL, "/message?token") {
+		return TargetGotify
+	}
+
+	return ""
+}
+
 // --- Main Handler ---
 
 func main() {
@@ -291,9 +229,15 @@ func main() {
 
 	port := envOrDefault("PORT", "8080")
 	debugMode = os.Getenv("DEBUG") == "true"
+	authToken = os.Getenv("TOKEN")
+
+	if authToken == "" {
+		log.Fatal("TOKEN is required; set TOKEN in environment for URL prefix security")
+	}
+
 	targets := loadTargets()
 	if len(targets) == 0 {
-		log.Println("no webhook targets configured; set *_WEBHOOK_URL in .env")
+		log.Println("no webhook targets configured; set <IDENTIFIER>_URL in environment")
 	}
 
 	mux := http.NewServeMux()
@@ -302,6 +246,7 @@ func main() {
 		mux.HandleFunc(t.Path, func(w http.ResponseWriter, r *http.Request) {
 			forwardRequest(w, r, t)
 		})
+		// Log full path with token only in service output
 		log.Printf("routing %s -> %s (%s)", t.Path, t.URL, t.Type)
 	}
 
@@ -316,25 +261,31 @@ func main() {
 		}
 		fmt.Fprintln(w, "Fizzy webhook proxy targets:")
 		for _, t := range targets {
-			fmt.Fprintf(w, " - %s (%s) at %s\n", t.Name, t.Type, t.Path)
+			// Show path without token in browser (just /identifier)
+			displayPath := "/" + t.Identifier
+			fmt.Fprintf(w, " - %s (%s) at %s\n", t.Name, t.Type, displayPath)
 		}
 	})
 
 	log.Printf("listening on :%s", port)
+	if authToken != "" {
+		log.Printf("TOKEN authentication enabled (prefix: /%s/...)", authToken)
+	}
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
 
-// loadDynamicTargets scans environment variables for multi-tenant board configurations.
-// It looks for pattern: BOARD_{IDENTIFIER}_{TYPE}_URL
-// Example: BOARD_ENG_ZULIP_URL creates path /zulip/board-eng
-func loadDynamicTargets() []target {
+// loadTargets scans environment variables for webhook configurations.
+// Pattern: {IDENTIFIER}_URL and optionally {IDENTIFIER}_TYPE
+// Example: ZULIP_URL, STATUS_PAGE_URL + STATUS_PAGE_TYPE=gotify
+func loadTargets() []target {
 	var targets []target
 
-	// Parse all environment variables
+	// Regex to find *_URL variables (but not ending with just _URL which would be empty identifier)
+	urlSuffix := "_URL"
+
 	for _, env := range os.Environ() {
-		// Split into key=value
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -343,103 +294,69 @@ func loadDynamicTargets() []target {
 		key := parts[0]
 		value := parts[1]
 
-		// Check if it matches BOARD_{ID}_{TYPE}_URL pattern
-		if !strings.HasPrefix(key, "BOARD_") || !strings.HasSuffix(key, "_URL") {
+		// Skip empty values
+		if value == "" {
 			continue
 		}
 
-		// Remove BOARD_ prefix and _URL suffix
-		middle := strings.TrimPrefix(key, "BOARD_")
-		middle = strings.TrimSuffix(middle, "_URL")
+		// Check if it ends with _URL
+		if !strings.HasSuffix(key, urlSuffix) {
+			continue
+		}
 
-		// Try to match known webhook types from the end
-		// This handles multi-word types like GOOGLE_CHAT correctly
-		var boardID string
+		// Skip special env vars
+		if key == "FIZZY_ROOT_URL" {
+			continue
+		}
+
+		// Extract identifier: remove _URL suffix
+		identifier := strings.TrimSuffix(key, urlSuffix)
+		if identifier == "" {
+			continue
+		}
+
+		// Convert to lowercase with hyphens for URL path
+		// Example: STATUS_PAGE -> status-page
+		pathIdentifier := strings.ToLower(strings.ReplaceAll(identifier, "_", "-"))
+
+		// Determine target type
 		var targetType TargetType
-		var pathPrefix string
 
-		middleUpper := strings.ToUpper(middle)
-
-		if strings.HasSuffix(middleUpper, "_GOOGLE_CHAT") || strings.HasSuffix(middleUpper, "_GOOGLECHAT") {
-			if strings.HasSuffix(middleUpper, "_GOOGLE_CHAT") {
-				boardID = middle[:len(middle)-len("_GOOGLE_CHAT")]
-			} else {
-				boardID = middle[:len(middle)-len("_GOOGLECHAT")]
-			}
-			targetType = TargetGoogleChat
-			pathPrefix = "google-chat"
-		} else if strings.HasSuffix(middleUpper, "_ZULIP") {
-			boardID = middle[:len(middle)-len("_ZULIP")]
-			targetType = TargetZulip
-			pathPrefix = "zulip"
-		} else if strings.HasSuffix(middleUpper, "_GOTIFY") {
-			boardID = middle[:len(middle)-len("_GOTIFY")]
-			targetType = TargetGotify
-			pathPrefix = "gotify"
+		// First check if TYPE is explicitly set
+		typeKey := identifier + "_TYPE"
+		if explicitType := os.Getenv(typeKey); explicitType != "" {
+			targetType = TargetType(strings.ToLower(explicitType))
 		} else {
-			// Unknown type, skip
+			// Try to detect from URL
+			targetType = detectTargetType(value)
+		}
+
+		// If still no type, skip with warning
+		if targetType == "" {
+			log.Printf("warning: cannot detect type for %s, set %s_TYPE explicitly", key, identifier)
 			continue
 		}
 
-		// Convert board ID to URL-safe format: lowercase with hyphens
-		// Example: MY_PROJECT -> my-project
-		boardPathID := strings.ToLower(strings.ReplaceAll(boardID, "_", "-"))
-
-		// Create target
-		target := target{
-			Name:    fmt.Sprintf("%s-%s", pathPrefix, boardPathID),
-			Path:    fmt.Sprintf("/%s/board-%s", pathPrefix, boardPathID),
-			URL:     value,
-			Type:    targetType,
-			BoardID: boardPathID,
+		// Build path with optional token prefix
+		var path string
+		if authToken != "" {
+			path = fmt.Sprintf("/%s/%s", authToken, pathIdentifier)
+		} else {
+			path = fmt.Sprintf("/%s", pathIdentifier)
 		}
 
-		targets = append(targets, target)
+		t := target{
+			Name:       pathIdentifier,
+			Path:       path,
+			URL:        value,
+			Type:       targetType,
+			Identifier: pathIdentifier,
+		}
+
+		targets = append(targets, t)
 	}
 
 	return targets
-}
-
-// loadLegacyTargets loads the original single-tenant webhook configurations.
-// This maintains backward compatibility with existing deployments.
-func loadLegacyTargets() []target {
-	return []target{
-		{
-			Name:    "zulip",
-			Path:    ensureLeadingSlash(envOrDefault("ZULIP_PATH", "/zulip")),
-			URL:     os.Getenv("ZULIP_WEBHOOK_URL"),
-			Type:    TargetZulip,
-			BoardID: "",
-		},
-		{
-			Name:    "google-chat",
-			Path:    ensureLeadingSlash(envOrDefault("GOOGLE_CHAT_PATH", "/google-chat")),
-			URL:     os.Getenv("GOOGLE_CHAT_WEBHOOK_URL"),
-			Type:    TargetGoogleChat,
-			BoardID: "",
-		},
-		{
-			Name:    "gotify",
-			Path:    ensureLeadingSlash(envOrDefault("GOTIFY_PATH", "/gotify")),
-			URL:     os.Getenv("GOTIFY_WEBHOOK_URL"),
-			Type:    TargetGotify,
-			BoardID: "",
-		},
-	}
-}
-
-func loadTargets() []target {
-	// Load legacy single-tenant targets
-	legacy := loadLegacyTargets()
-
-	// Load dynamic multi-tenant targets
-	dynamic := loadDynamicTargets()
-
-	// Combine both
-	all := append(legacy, dynamic...)
-
-	// Filter out targets without URLs
-	return filterTargets(all)
 }
 
 func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
@@ -486,7 +403,6 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
 	case TargetGotify:
 		newBody, translateErr = translateToGotify(fizzy)
 	default:
-		// Should not happen with current setup
 		newBody = body
 	}
 
@@ -497,8 +413,8 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
 	}
 
 	// Create new request to destination
-	// Note: We ignore original query params for simplicity unless needed.
 	destURL := appendQuery(t.URL, r.URL.RawQuery)
+
 	// Log the payload we are sending for debug
 	log.Printf("Forwarding to %s (%s): %s", t.Name, t.Type, string(newBody))
 
@@ -545,6 +461,83 @@ func translateToZulip(f FizzyPayload) ([]byte, error) {
 	msg := buildMessage(f)
 	payload := ZulipPayload{
 		Content: msg,
+	}
+	return json.Marshal(payload)
+}
+
+func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
+	actor := f.Creator.Name
+	if actor == "" {
+		actor = "Someone"
+	}
+	verb, emoji := prettyAction(f)
+
+	finalURL := resolveFizzyURL(f)
+
+	subjectTitle := f.Eventable.Title
+	if subjectTitle == "" {
+		if f.Board.Name != "" {
+			subjectTitle = f.Board.Name
+		} else {
+			subjectTitle = "Fizzy Notification"
+		}
+	}
+
+	headerSubtitle := fmt.Sprintf("%s %s", actor, verb)
+
+	header := CardHeader{
+		Title:    subjectTitle,
+		Subtitle: headerSubtitle,
+		ImageURL: "",
+	}
+
+	var widgets []Widget
+
+	if f.Eventable.Body.PlainText != "" {
+		widgets = append(widgets, Widget{
+			TextParagraph: &TextParagraph{
+				Text: f.Eventable.Body.PlainText,
+			},
+		})
+	}
+
+	if f.Board.Name != "" && subjectTitle != f.Board.Name {
+		widgets = append(widgets, Widget{
+			DecoratedText: &DecoratedText{
+				TopLabel:  "Board",
+				Text:      f.Board.Name,
+				StartIcon: &Icon{KnownIcon: "TICKET"},
+			},
+		})
+	}
+
+	widgets = append(widgets, Widget{
+		ButtonList: &ButtonList{
+			Buttons: []Button{
+				{
+					Text: "View in Fizzy",
+					Icon: &Icon{KnownIcon: "OPEN_IN_NEW"},
+					OnClick: &OnClick{
+						OpenLink: &OpenLink{URL: finalURL},
+					},
+				},
+			},
+		},
+	})
+
+	card := CardV2{
+		CardID: fmt.Sprintf("fizzy-%d", time.Now().UnixNano()),
+		Card: Card{
+			Header:   header,
+			Sections: []CardSection{{Widgets: widgets}},
+		},
+	}
+
+	fallbackText := fmt.Sprintf("%s %s %s: %s", emoji, actor, verb, subjectTitle)
+
+	payload := GoogleChatPayload{
+		Text:    fallbackText,
+		CardsV2: []CardV2{card},
 	}
 	return json.Marshal(payload)
 }
@@ -605,7 +598,7 @@ func buildMessage(f FizzyPayload) string {
 	// Extras (Board Name, etc.)
 	var extras []string
 	if f.Board.Name != "" && subject != f.Board.Name {
-		extras = append(extras, fmt.Sprintf("🎫 **Board:** %s", f.Board.Name))
+		extras = append(extras, fmt.Sprintf("Board: %s", f.Board.Name))
 	}
 
 	// Determine URL
@@ -666,7 +659,7 @@ func buildMessage(f FizzyPayload) string {
 		sb.WriteString(strings.Join(extras, "\n"))
 	}
 
-	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy ↗️](%s)", urlStr))
+	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy](%s)", urlStr))
 
 	return sb.String()
 }
@@ -799,6 +792,7 @@ func resolveFizzyURL(f FizzyPayload) string {
 
 	return urlStr
 }
+
 func prettyAction(f FizzyPayload) (verb string, emoji string) {
 	action := f.Action
 	// Normalize action string just in case
@@ -820,9 +814,9 @@ func prettyAction(f FizzyPayload) (verb string, emoji string) {
 			if f.Reason == "inactivity" {
 				return fmt.Sprintf("moved the card to **%s** due to inactivity", f.Column.Name), "💤"
 			}
-			return fmt.Sprintf("moved the card to **%s**", f.Column.Name), "truck"
+			return fmt.Sprintf("moved the card to **%s**", f.Column.Name), "🚚"
 		}
-		return "moved the card", "truck"
+		return "moved the card", "🚚"
 	case "card_assigned":
 		if f.Assignee != nil && f.Assignee.Name != "" {
 			return fmt.Sprintf("assigned the card to **%s**", f.Assignee.Name), "👤"
@@ -846,7 +840,7 @@ func prettyAction(f FizzyPayload) (verb string, emoji string) {
 				return "completed the card", "✅"
 			}
 			if strings.EqualFold(f.Column.Name, "Postponed") || strings.EqualFold(f.Column.Name, "Not Now") {
-				return "postponed the card", "zzz"
+				return "postponed the card", "😴"
 			}
 		}
 		return "archived the card", "📦"
@@ -856,16 +850,6 @@ func prettyAction(f FizzyPayload) (verb string, emoji string) {
 }
 
 // --- Helpers ---
-
-func filterTargets(list []target) []target {
-	var out []target
-	for _, t := range list {
-		if t.URL != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
 
 func ensureLeadingSlash(path string) string {
 	if !strings.HasPrefix(path, "/") {
