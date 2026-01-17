@@ -15,7 +15,7 @@
 
 </div>
 
-**Fizzy Webhook Proxy** is a middleware service that receives webhook requests from Fizzy and forwards them to platforms like Zulip, Google Chat, and Gotify in a proper format.
+**Fizzy Webhook Proxy** is a middleware service that receives webhook requests from Fizzy and forwards them to platforms like Zulip, Google Chat, Gotify, and Telegram in a proper format.
 
 Standard Fizzy notifications can be complex or incomplete. This service intercepts messages, cleans them up, organizes headers, and fixes broken comment links.
 
@@ -23,7 +23,7 @@ Standard Fizzy notifications can be complex or incomplete. This service intercep
 
 ## Features
 
-- **Rich Notifications:** Card views for Google Chat, clean Markdown format for Zulip and Gotify.
+- **Rich Notifications:** Card views for Google Chat, clean Markdown format for Zulip, Gotify, and Telegram.
 - **Smart Links:** Fixes comment links, redirects to the relevant card and comment ID.
 - **Deduplication:** Prevents the same event from being reported multiple times (2-second window).
 - **Type Auto-Detection:** Automatically detects webhook type from URL pattern.
@@ -97,8 +97,25 @@ Define targets using the pattern `{IDENTIFIER}_URL`. The identifier automaticall
 | Contains `slack_incoming` | Zulip | Zulip's Slack-compatible webhook |
 | Contains `chat.googleapis.com` | Google Chat | Google Chat webhook |
 | Contains `/message?token` | Gotify | Gotify push notification |
+| Contains `api.telegram.org` | Telegram | Telegram Bot API (requires `{IDENTIFIER}_CHAT_ID`) |
 
 If auto-detection fails, set `{IDENTIFIER}_TYPE` explicitly (e.g., `ZULIP_TYPE=zulip`).
+
+### Telegram Configuration
+
+Telegram uses `token` and `chat_id` as query parameters:
+
+| Variable Pattern | Example |
+|------------------|---------|
+| `{IDENTIFIER}_URL` | `https://api.telegram.org/sendMessage?token=<BOT_TOKEN>&chat_id=-1001234567890` |
+
+The proxy automatically constructs the proper Telegram Bot API URL from these parameters.
+
+To get your chat ID:
+1. Add your bot to the target chat/channel
+2. Send a message to the chat
+3. Visit `https://api.telegram.org/bot<BOT_TOKEN>/getUpdates`
+4. Find the `chat.id` field in the response
 
 ### Fizzy Link Configuration
 
@@ -157,9 +174,13 @@ GOOGLE_CHAT_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=KEY&
 # Gotify (auto-detected from "/message?token")
 GOTIFY_URL=https://gotify.example.com/message?token=APP_TOKEN
 
+# Telegram (auto-detected from "api.telegram.org")
+TELEGRAM_URL=https://api.telegram.org/sendMessage?token=123456:ABC-DEF&chat_id=-1001234567890
+
 # Multiple targets example
 # IDENTIFIER1_URL=https://chat.example.com/api/v1/external/slack_incoming?...&stream=stream1
 # IDENTIFIER2_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?...
+# IDENTIFIER3_URL=https://api.telegram.org/sendMessage?token=123456:ABC-DEF&chat_id=-1009999999999
 #
 # Multi-word identifier example (underscores become hyphens in URL path):
 # MY_TARGET_URL=https://...  → endpoint becomes: /{TOKEN}/my-target
@@ -176,8 +197,10 @@ This configuration creates the following webhook endpoints:
 - `https://your-proxy:3499/your_secret_token_here/zulip`
 - `https://your-proxy:3499/your_secret_token_here/google-chat`
 - `https://your-proxy:3499/your_secret_token_here/gotify`
+- `https://your-proxy:3499/your_secret_token_here/telegram`
 - `https://your-proxy:3499/your_secret_token_here/identifier1` (if uncommented)
 - `https://your-proxy:3499/your_secret_token_here/identifier2` (if uncommented)
+- `https://your-proxy:3499/your_secret_token_here/identifier3` (if uncommented, Telegram)
 - `https://your-proxy:3499/your_secret_token_here/my-target` (if uncommented, note: underscore → hyphen)
 
 ---

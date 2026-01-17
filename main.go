@@ -23,14 +23,16 @@ const (
 	TargetZulip      TargetType = "zulip"
 	TargetGoogleChat TargetType = "google-chat"
 	TargetGotify     TargetType = "gotify"
+	TargetTelegram   TargetType = "telegram"
 )
 
 type target struct {
 	Name       string
-	Path       string // The path to listen on (includes token prefix if set)
+	Path       string
 	URL        string
 	Type       TargetType
-	Identifier string // The identifier from config (e.g., "zulip", "eng-team")
+	Identifier string
+	ChatID     string
 }
 
 // --- Fizzy Payload Types (Generic JSON) ---
@@ -160,6 +162,12 @@ type GotifyPayload struct {
 	Extras   map[string]interface{} `json:"extras,omitempty"`
 }
 
+type TelegramPayload struct {
+	ChatID    string `json:"chat_id"`
+	Text      string `json:"text"`
+	ParseMode string `json:"parse_mode,omitempty"`
+}
+
 // --- Deduplication ---
 
 type DedupeKey struct {
@@ -217,6 +225,11 @@ func detectTargetType(webhookURL string) TargetType {
 	// Gotify: /message?token pattern
 	if strings.Contains(lowerURL, "/message?token") {
 		return TargetGotify
+	}
+
+	// Telegram: api.telegram.org
+	if strings.Contains(lowerURL, "api.telegram.org") {
+		return TargetTelegram
 	}
 
 	return ""
@@ -345,12 +358,29 @@ func loadTargets() []target {
 			path = fmt.Sprintf("/%s", pathIdentifier)
 		}
 
+		chatID := ""
+		telegramURL := value
+		if targetType == TargetTelegram {
+			if parsedURL, err := url.Parse(value); err == nil {
+				chatID = parsedURL.Query().Get("chat_id")
+				botToken := parsedURL.Query().Get("token")
+				if botToken != "" && chatID != "" {
+					telegramURL = fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+				}
+			}
+			if chatID == "" {
+				log.Printf("warning: Telegram target %s requires chat_id in URL (e.g., ...?chat_id=-123456)", key)
+				continue
+			}
+		}
+
 		t := target{
 			Name:       pathIdentifier,
 			Path:       path,
-			URL:        value,
+			URL:        telegramURL,
 			Type:       targetType,
 			Identifier: pathIdentifier,
+			ChatID:     chatID,
 		}
 
 		targets = append(targets, t)
@@ -402,6 +432,8 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
 		newBody, translateErr = translateToGoogleChat(fizzy)
 	case TargetGotify:
 		newBody, translateErr = translateToGotify(fizzy)
+	case TargetTelegram:
+		newBody, translateErr = translateToTelegram(fizzy, t.ChatID)
 	default:
 		newBody = body
 	}
@@ -561,6 +593,116 @@ func translateToGotify(f FizzyPayload) ([]byte, error) {
 		},
 	}
 	return json.Marshal(payload)
+}
+
+func translateToTelegram(f FizzyPayload, chatID string) ([]byte, error) {
+	msg := buildTelegramMessage(f)
+	payload := TelegramPayload{
+		ChatID:    chatID,
+		Text:      msg,
+		ParseMode: "MarkdownV2",
+	}
+	return json.Marshal(payload)
+}
+
+func buildTelegramMessage(f FizzyPayload) string {
+	actor := f.Creator.Name
+	if actor == "" {
+		actor = "Someone"
+	}
+
+	verb, emoji := prettyAction(f)
+
+	subject := f.Eventable.Title
+	if subject == "" {
+		if f.Card != nil && f.Card.Title != "" {
+			subject = f.Card.Title
+		} else if f.Eventable.Card != nil && f.Eventable.Card.Title != "" {
+			subject = f.Eventable.Card.Title
+		} else if f.Eventable.Parent != nil && f.Eventable.Parent.Title != "" {
+			subject = f.Eventable.Parent.Title
+		} else if f.Board.Name != "" {
+			subject = f.Board.Name
+		} else {
+			subject = "Fizzy Notification"
+		}
+	}
+
+	var body string
+	if f.Eventable.Body.PlainText != "" {
+		body = f.Eventable.Body.PlainText
+	}
+
+	urlStr := resolveFizzyURL(f)
+
+	if subject == f.Board.Name || subject == "Fizzy Notification" {
+		rawURL := f.Eventable.URL
+		if rawURL == "" {
+			rawURL = f.URL
+		}
+		if rawURL == "" {
+			rawURL = f.Eventable.ReactionsURL
+		}
+
+		if strings.Contains(rawURL, "/cards/") {
+			parts := strings.Split(rawURL, "/cards/")
+			if len(parts) > 1 {
+				sub := parts[1]
+				idPart := ""
+				for _, r := range sub {
+					if r >= '0' && r <= '9' {
+						idPart += string(r)
+					} else {
+						break
+					}
+				}
+				if idPart != "" {
+					subject = fmt.Sprintf("Card \\#%s", idPart)
+				}
+			}
+		}
+	}
+
+	actor = escapeTelegramMarkdownV2(actor)
+	subject = escapeTelegramMarkdownV2(subject)
+	body = escapeTelegramMarkdownV2(body)
+	verb = escapeTelegramMarkdownV2(verb)
+
+	var sb strings.Builder
+
+	hideSubject := false
+	if f.Action == "comment_created" && strings.Contains(subject, "Card \\\\#") {
+		hideSubject = true
+	}
+
+	if hideSubject {
+		sb.WriteString(fmt.Sprintf("%s *%s* %s", emoji, actor, verb))
+	} else {
+		sb.WriteString(fmt.Sprintf("%s *%s* %s: %s", emoji, actor, verb, subject))
+	}
+
+	if body != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(body)
+	}
+
+	if f.Board.Name != "" && f.Board.Name != subject {
+		sb.WriteString("\n\n")
+		sb.WriteString(fmt.Sprintf("Board: %s", escapeTelegramMarkdownV2(f.Board.Name)))
+	}
+
+	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy](%s)", urlStr))
+
+	return sb.String()
+}
+
+func escapeTelegramMarkdownV2(text string) string {
+	specialChars := []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
+	result := text
+	for _, char := range specialChars {
+		result = strings.ReplaceAll(result, char, "\\"+char)
+	}
+	return result
 }
 
 // buildMessage creates a human-readable string from the Fizzy payload.
