@@ -95,6 +95,7 @@ Define targets using the pattern `{IDENTIFIER}_URL`. The identifier automaticall
 | URL Pattern | Platform | Notes |
 |-------------|----------|-------|
 | Contains `slack_incoming` | Zulip | Zulip's Slack-compatible webhook |
+| Contains `/api/v1/messages` with auth and `to` param | Zulip DM | Direct messages to specific users |
 | Contains `chat.googleapis.com` | Google Chat | Google Chat webhook |
 | Contains `/message?token` | Gotify | Gotify push notification |
 | Contains `api.telegram.org` | Telegram | Telegram Bot API (requires `{IDENTIFIER}_CHAT_ID`) |
@@ -116,6 +117,32 @@ To get your chat ID:
 2. Send a message to the chat
 3. Visit `https://api.telegram.org/bot<BOT_TOKEN>/getUpdates`
 4. Find the `chat.id` field in the response
+
+### Zulip DM Configuration
+
+Zulip DM sends direct messages to specific users using the Zulip Messages API:
+
+| Variable Pattern | Example |
+|------------------|---------|
+| `{IDENTIFIER}_URL` | `https://bot-email@chat.example.com:API_KEY@chat.example.com/api/v1/messages?to=user@example.com` |
+
+URL format: `https://<bot_email>:<api_key>@<host>/api/v1/messages?to=<recipients>`
+
+- `bot_email`: Bot email (e.g., `fizzy-bot@chat.example.com`)
+- `api_key`: Bot's API key from Zulip settings
+- `to`: Comma-separated list of recipients (user IDs or email addresses)
+
+Examples:
+```bash
+# Single user with email address (recommended)
+ZULIP_DM_URL='https://fizzy-bot@chat.example.com:API_KEY@chat.example.com/api/v1/messages?to=john.doe@example.com'
+
+# Multiple users with email addresses
+ZULIP_DM_URL='https://fizzy-bot@chat.example.com:API_KEY@chat.example.com/api/v1/messages?to=john.doe@example.com,jane.smith@example.com'
+
+# With user IDs
+ZULIP_DM_URL='https://fizzy-bot@chat.example.com:API_KEY@chat.example.com/api/v1/messages?to=8,9,11'
+```
 
 ### Fizzy Link Configuration
 
@@ -177,6 +204,9 @@ GOTIFY_URL=https://gotify.example.com/message?token=APP_TOKEN
 # Telegram (auto-detected from "api.telegram.org")
 TELEGRAM_URL=https://api.telegram.org/sendMessage?token=123456:ABC-DEF&chat_id=-1001234567890
 
+# Zulip DM (auto-detected from "/api/v1/messages" with auth and "to" param)
+ZULIP_DM_URL=https://fizzy-bot@chat.example.com:API_KEY@chat.example.com/api/v1/messages?to=8,9,11
+
 # Multiple targets example
 # IDENTIFIER1_URL=https://chat.example.com/api/v1/external/slack_incoming?...&stream=stream1
 # IDENTIFIER2_URL=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?...
@@ -198,9 +228,10 @@ This configuration creates the following webhook endpoints:
 - `https://your-proxy:3499/your_secret_token_here/google-chat`
 - `https://your-proxy:3499/your_secret_token_here/gotify`
 - `https://your-proxy:3499/your_secret_token_here/telegram`
+- `https://your-proxy:3499/your_secret_token_here/zulip-dm`
 - `https://your-proxy:3499/your_secret_token_here/identifier1` (if uncommented)
 - `https://your-proxy:3499/your_secret_token_here/identifier2` (if uncommented)
-- `https://your-proxy:3499/your_secret_token_here/identifier3` (if uncommented, Telegram)
+- `https://your-proxy:3499/your_secret_token_here/identifier3` (if uncommented)
 - `https://your-proxy:3499/your_secret_token_here/my-target` (if uncommented, note: underscore → hyphen)
 
 ---

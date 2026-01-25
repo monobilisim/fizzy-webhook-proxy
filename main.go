@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ type TargetType string
 
 const (
 	TargetZulip      TargetType = "zulip"
+	TargetZulipDM    TargetType = "zulip-dm"
 	TargetGoogleChat TargetType = "google-chat"
 	TargetGotify     TargetType = "gotify"
 	TargetTelegram   TargetType = "telegram"
@@ -33,6 +35,9 @@ type target struct {
 	Type       TargetType
 	Identifier string
 	ChatID     string
+	// Zulip DM specific fields
+	ZulipDMAuth       string   // "email:api_key" for Basic Auth
+	ZulipDMRecipients []string // User IDs or email addresses to send DMs to
 }
 
 // --- Fizzy Payload Types (Generic JSON) ---
@@ -217,6 +222,15 @@ func detectTargetType(webhookURL string) TargetType {
 		return TargetGoogleChat
 	}
 
+	// Zulip DM: /api/v1/messages with auth and 'to' parameter (check before slack_incoming)
+	if strings.Contains(lowerURL, "/api/v1/messages") {
+		if parsedURL, err := url.Parse(webhookURL); err == nil {
+			if parsedURL.User != nil && parsedURL.Query().Get("to") != "" {
+				return TargetZulipDM
+			}
+		}
+	}
+
 	// Zulip: slack_incoming in URL (Zulip's Slack-compatible webhook)
 	if strings.Contains(lowerURL, "slack_incoming") {
 		return TargetZulip
@@ -374,13 +388,50 @@ func loadTargets() []target {
 			}
 		}
 
+		var zulipDMAuth string
+		var zulipDMRecipients []string
+		zulipDMURL := value
+		if targetType == TargetZulipDM {
+			if parsedURL, err := url.Parse(value); err == nil {
+				if parsedURL.User != nil {
+					password, _ := parsedURL.User.Password()
+					zulipDMAuth = parsedURL.User.Username() + ":" + password
+					parsedURL.User = nil
+				}
+				toParam := parsedURL.Query().Get("to")
+				if toParam != "" {
+					zulipDMRecipients = strings.Split(toParam, ",")
+					for i := range zulipDMRecipients {
+						zulipDMRecipients[i] = strings.TrimSpace(zulipDMRecipients[i])
+					}
+					q := parsedURL.Query()
+					q.Del("to")
+					parsedURL.RawQuery = q.Encode()
+				}
+				zulipDMURL = parsedURL.String()
+			}
+			if zulipDMAuth == "" {
+				log.Printf("warning: Zulip DM target %s requires auth in URL (e.g., https://user:apikey@host/api/v1/messages?to=1,2,3)", key)
+				continue
+			}
+			if len(zulipDMRecipients) == 0 {
+				log.Printf("warning: Zulip DM target %s requires 'to' parameter with user IDs (e.g., ?to=8,9,11)", key)
+				continue
+			}
+		}
+
 		t := target{
-			Name:       pathIdentifier,
-			Path:       path,
-			URL:        telegramURL,
-			Type:       targetType,
-			Identifier: pathIdentifier,
-			ChatID:     chatID,
+			Name:              pathIdentifier,
+			Path:              path,
+			URL:               telegramURL,
+			Type:              targetType,
+			Identifier:        pathIdentifier,
+			ChatID:            chatID,
+			ZulipDMAuth:       zulipDMAuth,
+			ZulipDMRecipients: zulipDMRecipients,
+		}
+		if targetType == TargetZulipDM {
+			t.URL = zulipDMURL
 		}
 
 		targets = append(targets, t)
@@ -428,6 +479,9 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
 	switch t.Type {
 	case TargetZulip:
 		newBody, translateErr = translateToZulip(fizzy)
+	case TargetZulipDM:
+		forwardToZulipDM(w, r, t, fizzy)
+		return
 	case TargetGoogleChat:
 		newBody, translateErr = translateToGoogleChat(fizzy)
 	case TargetGotify:
@@ -1047,5 +1101,71 @@ func loadDotEnv(path string) {
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("warning: error reading %s: %v", path, err)
+	}
+}
+
+func forwardToZulipDM(w http.ResponseWriter, r *http.Request, t target, fizzy FizzyPayload) {
+	msg := buildMessage(fizzy)
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	var recipients []interface{}
+	for _, s := range t.ZulipDMRecipients {
+		if id, err := strconv.Atoi(s); err == nil {
+			recipients = append(recipients, id)
+		} else {
+			recipients = append(recipients, s)
+		}
+	}
+	recipientsJSON, err := json.Marshal(recipients)
+	if err != nil {
+		log.Printf("error marshaling recipients: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	formData := url.Values{}
+	formData.Set("type", "direct")
+	formData.Set("to", string(recipientsJSON))
+	formData.Set("content", msg)
+
+	log.Printf("Forwarding to %s (zulip-dm): recipients=%s content=%s", t.Name, string(recipientsJSON), msg)
+
+	req, err := http.NewRequestWithContext(r.Context(), "POST", t.URL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		http.Error(w, "failed to build forward request", http.StatusInternalServerError)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Fizzy-Proxy/1.0")
+
+	authParts := strings.SplitN(t.ZulipDMAuth, ":", 2)
+	if len(authParts) == 2 {
+		req.SetBasicAuth(authParts[0], authParts[1])
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("forward error (%s): %v", t.Name, err)
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	respBodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("failed to read upstream response body: %v", err)
+	}
+	log.Printf("Upstream response (%s) Status: %d Body: %s", t.Name, resp.StatusCode, string(respBodyBytes))
+
+	for key, vals := range resp.Header {
+		for _, v := range vals {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	if _, err := w.Write(respBodyBytes); err != nil {
+		log.Printf("response copy error (%s): %v", t.Name, err)
 	}
 }
