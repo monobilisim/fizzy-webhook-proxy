@@ -855,34 +855,6 @@ func resolveSubjectTitle(f FizzyPayload) string {
 		}
 	}
 
-	if subject == f.Board.Name || subject == "Fizzy Notification" {
-		rawURL := f.Eventable.URL
-		if rawURL == "" {
-			rawURL = f.URL
-		}
-		if rawURL == "" {
-			rawURL = f.Eventable.ReactionsURL
-		}
-
-		if strings.Contains(rawURL, "/cards/") {
-			parts := strings.Split(rawURL, "/cards/")
-			if len(parts) > 1 {
-				sub := parts[1]
-				idPart := ""
-				for _, r := range sub {
-					if r >= '0' && r <= '9' {
-						idPart += string(r)
-					} else {
-						break
-					}
-				}
-				if idPart != "" {
-					subject = fmt.Sprintf("Card #%s", idPart)
-				}
-			}
-		}
-	}
-
 	return subject
 }
 
