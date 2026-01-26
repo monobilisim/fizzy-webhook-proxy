@@ -83,12 +83,18 @@ type FizzyColumn struct {
 }
 
 type FizzyEventable struct {
-	ID     string     `json:"id"`
-	Number int        `json:"number"` // Card number (e.g. 29) - For Cards
-	Title  string     `json:"title"`  // For cards
-	Card   *FizzyCard `json:"card,omitempty"`
-	Parent *FizzyCard `json:"parent,omitempty"` // Fallback for comments
-	Body   struct {
+	ID          string       `json:"id"`
+	Number      int          `json:"number"` // Card number (e.g. 29) - For Cards
+	Title       string       `json:"title"`  // For cards
+	Description string       `json:"description,omitempty"`
+	Status      string       `json:"status,omitempty"`
+	Column      *FizzyColumn `json:"column,omitempty"`
+	Assignees   []FizzyUser  `json:"assignees,omitempty"`
+	Tags        []string     `json:"tags,omitempty"`
+	Closed      bool         `json:"closed,omitempty"`
+	Card        *FizzyCard   `json:"card,omitempty"`
+	Parent      *FizzyCard   `json:"parent,omitempty"` // Fallback for comments
+	Body        struct {
 		PlainText string `json:"plain_text"`
 	} `json:"body"` // For comments
 	URL          string    `json:"url"`
@@ -642,6 +648,27 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 		if len(f.Eventable.Card.Tags) > 0 {
 			detailsText = append(detailsText, fmt.Sprintf("<b>Tags:</b> %s", strings.Join(f.Eventable.Card.Tags, ", ")))
 		}
+	} else {
+		// Fallback: Eventable itself IS the card (Card events)
+		if f.Eventable.Number != 0 {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Card #:</b> %d", f.Eventable.Number))
+		}
+		if f.Eventable.Status != "" {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Status:</b> %s", f.Eventable.Status))
+		}
+		if f.Eventable.Column != nil && f.Eventable.Column.Name != "" {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Column:</b> %s", f.Eventable.Column.Name))
+		}
+		if len(f.Eventable.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Assignees))
+			for i, u := range f.Eventable.Assignees {
+				names[i] = u.Name
+			}
+			detailsText = append(detailsText, fmt.Sprintf("<b>Assignees:</b> %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Tags) > 0 {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Tags:</b> %s", strings.Join(f.Eventable.Tags, ", ")))
+		}
 	}
 
 	if len(detailsText) > 0 {
@@ -860,6 +887,31 @@ func buildTelegramMessage(f FizzyPayload) string {
 			}
 			details = append(details, fmt.Sprintf("Tags: %s", strings.Join(cleanTags, ", ")))
 		}
+	} else {
+		// Fallback: Eventable itself IS the card
+		if f.Eventable.Number != 0 {
+			details = append(details, fmt.Sprintf("Card \\#%d", f.Eventable.Number))
+		}
+		if f.Eventable.Status != "" {
+			details = append(details, fmt.Sprintf("Status: %s", escapeTelegramMarkdownV2(f.Eventable.Status)))
+		}
+		if f.Eventable.Column != nil && f.Eventable.Column.Name != "" {
+			details = append(details, fmt.Sprintf("Column: %s", escapeTelegramMarkdownV2(f.Eventable.Column.Name)))
+		}
+		if len(f.Eventable.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Assignees))
+			for i, u := range f.Eventable.Assignees {
+				names[i] = escapeTelegramMarkdownV2(u.Name)
+			}
+			details = append(details, fmt.Sprintf("Assignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Tags) > 0 {
+			cleanTags := make([]string, len(f.Eventable.Tags))
+			for i, tag := range f.Eventable.Tags {
+				cleanTags[i] = escapeTelegramMarkdownV2(tag)
+			}
+			details = append(details, fmt.Sprintf("Tags: %s", strings.Join(cleanTags, ", ")))
+		}
 	}
 	if len(details) > 0 {
 		sb.WriteString("\n\n")
@@ -947,6 +999,31 @@ func buildMessage(f FizzyPayload) string {
 		}
 		if len(f.Eventable.Card.Tags) > 0 {
 			extras = append(extras, fmt.Sprintf("Tags: %s", strings.Join(f.Eventable.Card.Tags, ", ")))
+		}
+	} else {
+		// Fallback: Eventable itself IS the card
+		if f.Eventable.Number != 0 {
+			extras = append(extras, fmt.Sprintf("Card #: %d", f.Eventable.Number))
+		}
+		if f.Eventable.Status != "" {
+			extras = append(extras, fmt.Sprintf("Status: %s", f.Eventable.Status))
+		}
+		if f.Eventable.Column != nil && f.Eventable.Column.Name != "" {
+			extras = append(extras, fmt.Sprintf("Column: %s", f.Eventable.Column.Name))
+		}
+		if len(f.Eventable.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Assignees))
+			for i, u := range f.Eventable.Assignees {
+				names[i] = u.Name
+			}
+			extras = append(extras, fmt.Sprintf("Assignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Tags) > 0 {
+			extras = append(extras, fmt.Sprintf("Tags: %s", strings.Join(f.Eventable.Tags, ", ")))
+		}
+		// Description if available and not already used as body
+		if f.Eventable.Body.PlainText == "" && f.Eventable.Description != "" {
+			body = fmt.Sprintf("> %s", f.Eventable.Description)
 		}
 	}
 
@@ -1048,6 +1125,31 @@ func buildZulipMessage(f FizzyPayload) string {
 		}
 		if len(f.Eventable.Card.Tags) > 0 {
 			sb.WriteString(fmt.Sprintf("\nTags: %s", strings.Join(f.Eventable.Card.Tags, ", ")))
+		}
+	} else {
+		// Fallback: Eventable itself IS the card
+		if f.Eventable.Number != 0 {
+			sb.WriteString(fmt.Sprintf("\nCard #: %d", f.Eventable.Number))
+		}
+		if f.Eventable.Status != "" {
+			sb.WriteString(fmt.Sprintf("\nStatus: %s", f.Eventable.Status))
+		}
+		if f.Eventable.Column != nil && f.Eventable.Column.Name != "" {
+			sb.WriteString(fmt.Sprintf("\nColumn: %s", f.Eventable.Column.Name))
+		}
+		if len(f.Eventable.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Assignees))
+			for i, u := range f.Eventable.Assignees {
+				names[i] = u.Name
+			}
+			sb.WriteString(fmt.Sprintf("\nAssignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Tags) > 0 {
+			sb.WriteString(fmt.Sprintf("\nTags: %s", strings.Join(f.Eventable.Tags, ", ")))
+		}
+		if body == "" && f.Eventable.Description != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(fmt.Sprintf("> %s", f.Eventable.Description))
 		}
 	}
 
@@ -1248,6 +1350,8 @@ func prettyAction(f FizzyPayload) (verb string, emoji string) {
 			column = f.Card.Column.Name
 		} else if f.Eventable.Card != nil && f.Eventable.Card.Column != nil && f.Eventable.Card.Column.Name != "" {
 			column = f.Eventable.Card.Column.Name
+		} else if f.Eventable.Column != nil && f.Eventable.Column.Name != "" {
+			column = f.Eventable.Column.Name
 		}
 		return fmt.Sprintf("moved the card to **%s**", column), "🚚"
 	case "card_sent_back_to_triage":
