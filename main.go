@@ -610,7 +610,11 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 	var detailsText []string
 	if f.Card != nil {
 		if f.Card.Number != 0 {
-			detailsText = append(detailsText, fmt.Sprintf("<b>Card #:</b> %d", f.Card.Number))
+			if f.Card.Title != "" {
+				detailsText = append(detailsText, fmt.Sprintf("<b>Card:</b> %s (#%d)", f.Card.Title, f.Card.Number))
+			} else {
+				detailsText = append(detailsText, fmt.Sprintf("<b>Card #:</b> %d", f.Card.Number))
+			}
 		}
 		if f.Card.Status != "" {
 			detailsText = append(detailsText, fmt.Sprintf("<b>Status:</b> %s", f.Card.Status))
@@ -651,7 +655,11 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 	} else {
 		// Fallback: Eventable itself IS the card (Card events)
 		if f.Eventable.Number != 0 {
-			detailsText = append(detailsText, fmt.Sprintf("<b>Card #:</b> %d", f.Eventable.Number))
+			if f.Eventable.Title != "" {
+				detailsText = append(detailsText, fmt.Sprintf("<b>Card:</b> %s (#%d)", f.Eventable.Title, f.Eventable.Number))
+			} else {
+				detailsText = append(detailsText, fmt.Sprintf("<b>Card #:</b> %d", f.Eventable.Number))
+			}
 		}
 		if f.Eventable.Status != "" {
 			detailsText = append(detailsText, fmt.Sprintf("<b>Status:</b> %s", f.Eventable.Status))
@@ -841,7 +849,11 @@ func buildTelegramMessage(f FizzyPayload) string {
 	var details []string
 	if f.Card != nil {
 		if f.Card.Number != 0 {
-			details = append(details, fmt.Sprintf("Card \\#%d", f.Card.Number))
+			if f.Card.Title != "" {
+				details = append(details, fmt.Sprintf("Card: %s (\\#%d)", escapeTelegramMarkdownV2(f.Card.Title), f.Card.Number))
+			} else {
+				details = append(details, fmt.Sprintf("Card \\#%d", f.Card.Number))
+			}
 		}
 		if f.Card.Status != "" {
 			details = append(details, fmt.Sprintf("Status: %s", escapeTelegramMarkdownV2(f.Card.Status)))
@@ -890,7 +902,11 @@ func buildTelegramMessage(f FizzyPayload) string {
 	} else {
 		// Fallback: Eventable itself IS the card
 		if f.Eventable.Number != 0 {
-			details = append(details, fmt.Sprintf("Card \\#%d", f.Eventable.Number))
+			if f.Eventable.Title != "" {
+				details = append(details, fmt.Sprintf("Card: %s (\\#%d)", escapeTelegramMarkdownV2(f.Eventable.Title), f.Eventable.Number))
+			} else {
+				details = append(details, fmt.Sprintf("Card \\#%d", f.Eventable.Number))
+			}
 		}
 		if f.Eventable.Status != "" {
 			details = append(details, fmt.Sprintf("Status: %s", escapeTelegramMarkdownV2(f.Eventable.Status)))
@@ -958,7 +974,11 @@ func buildMessage(f FizzyPayload) string {
 
 	if f.Card != nil {
 		if f.Card.Number != 0 {
-			extras = append(extras, fmt.Sprintf("Card #: %d", f.Card.Number))
+			if f.Card.Title != "" {
+				extras = append(extras, fmt.Sprintf("Card: %s (#%d)", f.Card.Title, f.Card.Number))
+			} else {
+				extras = append(extras, fmt.Sprintf("Card #: %d", f.Card.Number))
+			}
 		}
 		if f.Card.Status != "" {
 			extras = append(extras, fmt.Sprintf("Status: %s", f.Card.Status))
@@ -1003,7 +1023,11 @@ func buildMessage(f FizzyPayload) string {
 	} else {
 		// Fallback: Eventable itself IS the card
 		if f.Eventable.Number != 0 {
-			extras = append(extras, fmt.Sprintf("Card #: %d", f.Eventable.Number))
+			if f.Eventable.Title != "" {
+				extras = append(extras, fmt.Sprintf("Card: %s (#%d)", f.Eventable.Title, f.Eventable.Number))
+			} else {
+				extras = append(extras, fmt.Sprintf("Card #: %d", f.Eventable.Number))
+			}
 		}
 		if f.Eventable.Status != "" {
 			extras = append(extras, fmt.Sprintf("Status: %s", f.Eventable.Status))
@@ -1084,7 +1108,11 @@ func buildZulipMessage(f FizzyPayload) string {
 
 	if f.Card != nil {
 		if f.Card.Number != 0 {
-			sb.WriteString(fmt.Sprintf("\nCard #: %d", f.Card.Number))
+			if f.Card.Title != "" {
+				sb.WriteString(fmt.Sprintf("\nCard: %s (#%d)", f.Card.Title, f.Card.Number))
+			} else {
+				sb.WriteString(fmt.Sprintf("\nCard #: %d", f.Card.Number))
+			}
 		}
 		if f.Card.Status != "" {
 			sb.WriteString(fmt.Sprintf("\nStatus: %s", f.Card.Status))
@@ -1129,7 +1157,11 @@ func buildZulipMessage(f FizzyPayload) string {
 	} else {
 		// Fallback: Eventable itself IS the card
 		if f.Eventable.Number != 0 {
-			sb.WriteString(fmt.Sprintf("\nCard #: %d", f.Eventable.Number))
+			if f.Eventable.Title != "" {
+				sb.WriteString(fmt.Sprintf("\nCard: %s (#%d)", f.Eventable.Title, f.Eventable.Number))
+			} else {
+				sb.WriteString(fmt.Sprintf("\nCard #: %d", f.Eventable.Number))
+			}
 		}
 		if f.Eventable.Status != "" {
 			sb.WriteString(fmt.Sprintf("\nStatus: %s", f.Eventable.Status))
