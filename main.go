@@ -93,6 +93,7 @@ type FizzyUser struct {
 
 type ZulipPayload struct {
 	Content string `json:"text"`
+	Topic   string `json:"topic,omitempty"`
 }
 
 type GoogleChatPayload struct {
@@ -544,9 +545,11 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, t target) {
 // --- Translation Logic ---
 
 func translateToZulip(f FizzyPayload) ([]byte, error) {
-	msg := buildMessage(f)
+	msg := buildZulipMessage(f)
+	subjectTitle := resolveSubjectTitle(f)
 	payload := ZulipPayload{
 		Content: msg,
+		Topic:   subjectTitle,
 	}
 	return json.Marshal(payload)
 }
@@ -560,14 +563,7 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 
 	finalURL := resolveFizzyURL(f)
 
-	subjectTitle := f.Eventable.Title
-	if subjectTitle == "" {
-		if f.Board.Name != "" {
-			subjectTitle = f.Board.Name
-		} else {
-			subjectTitle = "Fizzy Notification"
-		}
-	}
+	subjectTitle := resolveSubjectTitle(f)
 
 	headerSubtitle := fmt.Sprintf("%s %s", actor, verb)
 
@@ -769,21 +765,7 @@ func buildMessage(f FizzyPayload) string {
 	verb, emoji := prettyAction(f)
 
 	// Determine Subject (Title)
-	subject := f.Eventable.Title
-	if subject == "" {
-		// Try to find title in other places (e.g. for comments)
-		if f.Card != nil && f.Card.Title != "" {
-			subject = f.Card.Title
-		} else if f.Eventable.Card != nil && f.Eventable.Card.Title != "" {
-			subject = f.Eventable.Card.Title
-		} else if f.Eventable.Parent != nil && f.Eventable.Parent.Title != "" {
-			subject = f.Eventable.Parent.Title
-		} else if f.Board.Name != "" {
-			subject = f.Board.Name
-		} else {
-			subject = "Fizzy Notification"
-		}
-	}
+	subject := resolveSubjectTitle(f)
 
 	// Body Content
 	var body string
@@ -799,38 +781,6 @@ func buildMessage(f FizzyPayload) string {
 
 	// Determine URL
 	urlStr := resolveFizzyURL(f)
-
-	if subject == f.Board.Name || subject == "Fizzy Notification" {
-		// inspect raw URLs not the resolved one which might be a search URL
-		rawURL := f.Eventable.URL
-		if rawURL == "" {
-			rawURL = f.URL
-		}
-		if rawURL == "" {
-			rawURL = f.Eventable.ReactionsURL
-		}
-
-		// Check for /cards/123
-		if strings.Contains(rawURL, "/cards/") {
-			parts := strings.Split(rawURL, "/cards/")
-			if len(parts) > 1 {
-				// Extract ID part (digits)
-				sub := parts[1]
-				// Might be followed by /search or # etc or even /comments
-				idPart := ""
-				for _, r := range sub {
-					if r >= '0' && r <= '9' {
-						idPart += string(r)
-					} else {
-						break
-					}
-				}
-				if idPart != "" {
-					subject = fmt.Sprintf("Card #%s", idPart)
-				}
-			}
-		}
-	}
 
 	var sb strings.Builder
 
@@ -858,6 +808,82 @@ func buildMessage(f FizzyPayload) string {
 	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy](%s)", urlStr))
 
 	return sb.String()
+}
+
+func buildZulipMessage(f FizzyPayload) string {
+	actor := f.Creator.Name
+	if actor == "" {
+		actor = "Someone"
+	}
+
+	verb, _ := prettyAction(f)
+	subject := resolveSubjectTitle(f)
+	body := f.Eventable.Body.PlainText
+	urlStr := resolveFizzyURL(f)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s %s: %s", actor, verb, subject))
+
+	if body != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(fmt.Sprintf("> %s", body))
+	}
+
+	if f.Board.Name != "" && subject != f.Board.Name {
+		sb.WriteString("\n\n")
+		sb.WriteString(fmt.Sprintf("Board: %s", f.Board.Name))
+	}
+
+	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy](%s)", urlStr))
+
+	return sb.String()
+}
+
+func resolveSubjectTitle(f FizzyPayload) string {
+	subject := f.Eventable.Title
+	if subject == "" {
+		if f.Card != nil && f.Card.Title != "" {
+			subject = f.Card.Title
+		} else if f.Eventable.Card != nil && f.Eventable.Card.Title != "" {
+			subject = f.Eventable.Card.Title
+		} else if f.Eventable.Parent != nil && f.Eventable.Parent.Title != "" {
+			subject = f.Eventable.Parent.Title
+		} else if f.Board.Name != "" {
+			subject = f.Board.Name
+		} else {
+			subject = "Fizzy Notification"
+		}
+	}
+
+	if subject == f.Board.Name || subject == "Fizzy Notification" {
+		rawURL := f.Eventable.URL
+		if rawURL == "" {
+			rawURL = f.URL
+		}
+		if rawURL == "" {
+			rawURL = f.Eventable.ReactionsURL
+		}
+
+		if strings.Contains(rawURL, "/cards/") {
+			parts := strings.Split(rawURL, "/cards/")
+			if len(parts) > 1 {
+				sub := parts[1]
+				idPart := ""
+				for _, r := range sub {
+					if r >= '0' && r <= '9' {
+						idPart += string(r)
+					} else {
+						break
+					}
+				}
+				if idPart != "" {
+					subject = fmt.Sprintf("Card #%s", idPart)
+				}
+			}
+		}
+	}
+
+	return subject
 }
 
 func resolveFizzyURL(f FizzyPayload) string {
@@ -1105,7 +1131,7 @@ func loadDotEnv(path string) {
 }
 
 func forwardToZulipDM(w http.ResponseWriter, r *http.Request, t target, fizzy FizzyPayload) {
-	msg := buildMessage(fizzy)
+	msg := buildZulipMessage(fizzy)
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	var recipients []interface{}
