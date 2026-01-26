@@ -58,7 +58,18 @@ type FizzyPayload struct {
 }
 
 type FizzyCard struct {
-	Title string `json:"title"`
+	ID          string       `json:"id"`
+	Number      int          `json:"number"`
+	Title       string       `json:"title"`
+	Description string       `json:"description,omitempty"`
+	Status      string       `json:"status,omitempty"`
+	URL         string       `json:"url,omitempty"`
+	Board       *FizzyBoard  `json:"board,omitempty"`
+	Column      *FizzyColumn `json:"column,omitempty"`
+	Creator     *FizzyUser   `json:"creator,omitempty"`
+	Assignees   []FizzyUser  `json:"assignees,omitempty"`
+	Tags        []string     `json:"tags,omitempty"`
+	Closed      bool         `json:"closed,omitempty"`
 }
 
 type FizzyBoard struct {
@@ -581,6 +592,64 @@ func translateToGoogleChat(f FizzyPayload) ([]byte, error) {
 				Text: f.Eventable.Body.PlainText,
 			},
 		})
+	} else if f.Card != nil && f.Card.Description != "" {
+		widgets = append(widgets, Widget{
+			TextParagraph: &TextParagraph{
+				Text: f.Card.Description,
+			},
+		})
+	}
+
+	// Card Details Section
+	var detailsText []string
+	if f.Card != nil {
+		if f.Card.Number != 0 {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Card #:</b> %d", f.Card.Number))
+		}
+		if f.Card.Status != "" {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Status:</b> %s", f.Card.Status))
+		}
+		if f.Card.Column != nil && f.Card.Column.Name != "" {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Column:</b> %s", f.Card.Column.Name))
+		}
+		if len(f.Card.Assignees) > 0 {
+			names := make([]string, len(f.Card.Assignees))
+			for i, u := range f.Card.Assignees {
+				names[i] = u.Name
+			}
+			detailsText = append(detailsText, fmt.Sprintf("<b>Assignees:</b> %s", strings.Join(names, ", ")))
+		}
+		if len(f.Card.Tags) > 0 {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Tags:</b> %s", strings.Join(f.Card.Tags, ", ")))
+		}
+	} else if f.Eventable.Card != nil {
+		if f.Eventable.Number != 0 {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Card #:</b> %d", f.Eventable.Number))
+		}
+		if f.Eventable.Card.Status != "" {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Status:</b> %s", f.Eventable.Card.Status))
+		}
+		if f.Eventable.Card.Column != nil && f.Eventable.Card.Column.Name != "" {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Column:</b> %s", f.Eventable.Card.Column.Name))
+		}
+		if len(f.Eventable.Card.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Card.Assignees))
+			for i, u := range f.Eventable.Card.Assignees {
+				names[i] = u.Name
+			}
+			detailsText = append(detailsText, fmt.Sprintf("<b>Assignees:</b> %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Card.Tags) > 0 {
+			detailsText = append(detailsText, fmt.Sprintf("<b>Tags:</b> %s", strings.Join(f.Eventable.Card.Tags, ", ")))
+		}
+	}
+
+	if len(detailsText) > 0 {
+		widgets = append(widgets, Widget{
+			TextParagraph: &TextParagraph{
+				Text: strings.Join(detailsText, "<br>"),
+			},
+		})
 	}
 
 	if f.Board.Name != "" && subjectTitle != f.Board.Name {
@@ -741,6 +810,62 @@ func buildTelegramMessage(f FizzyPayload) string {
 		sb.WriteString(fmt.Sprintf("Board: %s", escapeTelegramMarkdownV2(f.Board.Name)))
 	}
 
+	// Add Card Details
+	var details []string
+	if f.Card != nil {
+		if f.Card.Number != 0 {
+			details = append(details, fmt.Sprintf("Card \\#%d", f.Card.Number))
+		}
+		if f.Card.Status != "" {
+			details = append(details, fmt.Sprintf("Status: %s", escapeTelegramMarkdownV2(f.Card.Status)))
+		}
+		if f.Card.Column != nil && f.Card.Column.Name != "" {
+			details = append(details, fmt.Sprintf("Column: %s", escapeTelegramMarkdownV2(f.Card.Column.Name)))
+		}
+		if len(f.Card.Assignees) > 0 {
+			names := make([]string, len(f.Card.Assignees))
+			for i, u := range f.Card.Assignees {
+				names[i] = escapeTelegramMarkdownV2(u.Name)
+			}
+			details = append(details, fmt.Sprintf("Assignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Card.Tags) > 0 {
+			cleanTags := make([]string, len(f.Card.Tags))
+			for i, tag := range f.Card.Tags {
+				cleanTags[i] = escapeTelegramMarkdownV2(tag)
+			}
+			details = append(details, fmt.Sprintf("Tags: %s", strings.Join(cleanTags, ", ")))
+		}
+	} else if f.Eventable.Card != nil {
+		if f.Eventable.Number != 0 {
+			details = append(details, fmt.Sprintf("Card \\#%d", f.Eventable.Number))
+		}
+		if f.Eventable.Card.Status != "" {
+			details = append(details, fmt.Sprintf("Status: %s", escapeTelegramMarkdownV2(f.Eventable.Card.Status)))
+		}
+		if f.Eventable.Card.Column != nil && f.Eventable.Card.Column.Name != "" {
+			details = append(details, fmt.Sprintf("Column: %s", escapeTelegramMarkdownV2(f.Eventable.Card.Column.Name)))
+		}
+		if len(f.Eventable.Card.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Card.Assignees))
+			for i, u := range f.Eventable.Card.Assignees {
+				names[i] = escapeTelegramMarkdownV2(u.Name)
+			}
+			details = append(details, fmt.Sprintf("Assignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Card.Tags) > 0 {
+			cleanTags := make([]string, len(f.Eventable.Card.Tags))
+			for i, tag := range f.Eventable.Card.Tags {
+				cleanTags[i] = escapeTelegramMarkdownV2(tag)
+			}
+			details = append(details, fmt.Sprintf("Tags: %s", strings.Join(cleanTags, ", ")))
+		}
+	}
+	if len(details) > 0 {
+		sb.WriteString("\n\n")
+		sb.WriteString(strings.Join(details, "\n"))
+	}
+
 	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy](%s)", urlStr))
 
 	return sb.String()
@@ -777,6 +902,52 @@ func buildMessage(f FizzyPayload) string {
 	var extras []string
 	if f.Board.Name != "" && subject != f.Board.Name {
 		extras = append(extras, fmt.Sprintf("Board: %s", f.Board.Name))
+	}
+
+	if f.Card != nil {
+		if f.Card.Number != 0 {
+			extras = append(extras, fmt.Sprintf("Card #: %d", f.Card.Number))
+		}
+		if f.Card.Status != "" {
+			extras = append(extras, fmt.Sprintf("Status: %s", f.Card.Status))
+		}
+		if f.Card.Column != nil && f.Card.Column.Name != "" {
+			extras = append(extras, fmt.Sprintf("Column: %s", f.Card.Column.Name))
+		}
+		if len(f.Card.Assignees) > 0 {
+			names := make([]string, len(f.Card.Assignees))
+			for i, u := range f.Card.Assignees {
+				names[i] = u.Name
+			}
+			extras = append(extras, fmt.Sprintf("Assignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Card.Tags) > 0 {
+			extras = append(extras, fmt.Sprintf("Tags: %s", strings.Join(f.Card.Tags, ", ")))
+		}
+		// Description if available and not already used as body
+		if f.Eventable.Body.PlainText == "" && f.Card.Description != "" {
+			body = fmt.Sprintf("> %s", f.Card.Description)
+		}
+	} else if f.Eventable.Card != nil {
+		if f.Eventable.Number != 0 {
+			extras = append(extras, fmt.Sprintf("Card #: %d", f.Eventable.Number))
+		}
+		if f.Eventable.Card.Status != "" {
+			extras = append(extras, fmt.Sprintf("Status: %s", f.Eventable.Card.Status))
+		}
+		if f.Eventable.Card.Column != nil && f.Eventable.Card.Column.Name != "" {
+			extras = append(extras, fmt.Sprintf("Column: %s", f.Eventable.Card.Column.Name))
+		}
+		if len(f.Eventable.Card.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Card.Assignees))
+			for i, u := range f.Eventable.Card.Assignees {
+				names[i] = u.Name
+			}
+			extras = append(extras, fmt.Sprintf("Assignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Card.Tags) > 0 {
+			extras = append(extras, fmt.Sprintf("Tags: %s", strings.Join(f.Eventable.Card.Tags, ", ")))
+		}
 	}
 
 	// Determine URL
@@ -816,13 +987,13 @@ func buildZulipMessage(f FizzyPayload) string {
 		actor = "Someone"
 	}
 
-	verb, _ := prettyAction(f)
+	verb, emoji := prettyAction(f)
 	subject := resolveSubjectTitle(f)
 	body := f.Eventable.Body.PlainText
 	urlStr := resolveFizzyURL(f)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s %s: %s", actor, verb, subject))
+	sb.WriteString(fmt.Sprintf("%s %s %s: %s", emoji, actor, verb, subject))
 
 	if body != "" {
 		sb.WriteString("\n\n")
@@ -832,6 +1003,52 @@ func buildZulipMessage(f FizzyPayload) string {
 	if f.Board.Name != "" && subject != f.Board.Name {
 		sb.WriteString("\n\n")
 		sb.WriteString(fmt.Sprintf("Board: %s", f.Board.Name))
+	}
+
+	if f.Card != nil {
+		if f.Card.Number != 0 {
+			sb.WriteString(fmt.Sprintf("\nCard #: %d", f.Card.Number))
+		}
+		if f.Card.Status != "" {
+			sb.WriteString(fmt.Sprintf("\nStatus: %s", f.Card.Status))
+		}
+		if f.Card.Column != nil && f.Card.Column.Name != "" {
+			sb.WriteString(fmt.Sprintf("\nColumn: %s", f.Card.Column.Name))
+		}
+		if len(f.Card.Assignees) > 0 {
+			names := make([]string, len(f.Card.Assignees))
+			for i, u := range f.Card.Assignees {
+				names[i] = u.Name
+			}
+			sb.WriteString(fmt.Sprintf("\nAssignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Card.Tags) > 0 {
+			sb.WriteString(fmt.Sprintf("\nTags: %s", strings.Join(f.Card.Tags, ", ")))
+		}
+		if body == "" && f.Card.Description != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(fmt.Sprintf("> %s", f.Card.Description))
+		}
+	} else if f.Eventable.Card != nil {
+		if f.Eventable.Number != 0 {
+			sb.WriteString(fmt.Sprintf("\nCard #: %d", f.Eventable.Number))
+		}
+		if f.Eventable.Card.Status != "" {
+			sb.WriteString(fmt.Sprintf("\nStatus: %s", f.Eventable.Card.Status))
+		}
+		if f.Eventable.Card.Column != nil && f.Eventable.Card.Column.Name != "" {
+			sb.WriteString(fmt.Sprintf("\nColumn: %s", f.Eventable.Card.Column.Name))
+		}
+		if len(f.Eventable.Card.Assignees) > 0 {
+			names := make([]string, len(f.Eventable.Card.Assignees))
+			for i, u := range f.Eventable.Card.Assignees {
+				names[i] = u.Name
+			}
+			sb.WriteString(fmt.Sprintf("\nAssignees: %s", strings.Join(names, ", ")))
+		}
+		if len(f.Eventable.Card.Tags) > 0 {
+			sb.WriteString(fmt.Sprintf("\nTags: %s", strings.Join(f.Eventable.Card.Tags, ", ")))
+		}
 	}
 
 	sb.WriteString(fmt.Sprintf("\n\n[View in Fizzy](%s)", urlStr))
@@ -1025,9 +1242,24 @@ func prettyAction(f FizzyPayload) (verb string, emoji string) {
 			return "completed the card", "✅"
 		}
 		return "closed the card", "✅"
+	case "card_triaged":
+		column := "somewhere"
+		if f.Card != nil && f.Card.Column != nil && f.Card.Column.Name != "" {
+			column = f.Card.Column.Name
+		} else if f.Eventable.Card != nil && f.Eventable.Card.Column != nil && f.Eventable.Card.Column.Name != "" {
+			column = f.Eventable.Card.Column.Name
+		}
+		return fmt.Sprintf("moved the card to **%s**", column), "🚚"
 	case "card_sent_back_to_triage":
-		return "sent the card back to triage", "↩️"
+		return "moved the card back to **Maybe?**", "↩️"
+	case "card_auto_postponed":
+		return "moved to **Not Now** due to inactivity", "💤"
+	case "card_resumed":
+		return "resumed the card", "▶️"
+	case "card_title_changed":
+		return "renamed the card", "✏️"
 	case "card_archived":
+
 		// Check for "Done" or "Postponed" if possible...
 		if f.Column != nil {
 			if strings.EqualFold(f.Column.Name, "Done") {
