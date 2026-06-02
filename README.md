@@ -8,7 +8,7 @@
 
 <div align="center">
   <a href="https://mono.tr/">
-    <img src="https://monobilisim.com.tr/images/mono-bilisim.svg" width="340" style="max-width: 100%;">
+    <img src="https://r2.mono.tr/logo/Mono-Logo.svg" width="340" style="max-width: 100%;">
   </a>
 
 ## Fizzy Webhook Proxy
